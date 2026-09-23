@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Users, 
@@ -15,10 +15,12 @@ import {
   Save, 
   Filter, 
   MessageSquare,
-  ShieldAlert,
-  ArrowUpDown
+  FileUp,
+  FileText,
+  AlertCircle,
+  UploadCloud
 } from 'lucide-react';
-import { Lead, BankAccountDetails, LeadStatus } from '../types/crm';
+import { Lead, BankAccountDetails, LeadStatus, ProductFileInfo } from '../types/crm';
 import { leadService } from '../services/leadService';
 import { DEFAULT_BANK_DETAILS } from '../data/bankDetails';
 
@@ -28,7 +30,7 @@ interface CrmDashboardModalProps {
 }
 
 export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'leads' | 'bank' | 'templates'>('leads');
+  const [activeTab, setActiveTab] = useState<'leads' | 'bank' | 'product' | 'templates'>('leads');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -36,17 +38,43 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   const [bankSavedMessage, setBankSavedMessage] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Product Upload State
+  const [productInfo, setProductInfo] = useState<ProductFileInfo>({
+    filename: 'active-product.pdf',
+    originalName: 'Upwork-Client-Acquisition-Master-System.pdf',
+    fileSize: '14.2 MB',
+    uploadedAt: new Date().toISOString(),
+    downloadUrl: '/api/download-product'
+  });
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (isOpen) {
       loadData();
     }
   }, [isOpen]);
 
+  // Support pressing Escape to close CRM
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const loadData = async () => {
     const loadedLeads = await leadService.getLeads();
     setLeads(loadedLeads);
     const loadedBank = await leadService.getBankDetails();
     setBankDetails(loadedBank);
+    const loadedProduct = await leadService.getProductFile();
+    setProductInfo(loadedProduct);
   };
 
   if (!isOpen) return null;
@@ -61,6 +89,35 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     await leadService.saveBankDetails(bankDetails);
     setBankSavedMessage(true);
     setTimeout(() => setBankSavedMessage(false), 3000);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      setUploadError('Please select a valid PDF file (.pdf).');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+      setUploadSuccess(false);
+
+      const uploaded = await leadService.uploadProductFile(file);
+      setProductInfo(uploaded);
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 4000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setUploadError(message);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const filteredLeads = leads.filter(lead => {
@@ -136,9 +193,25 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-neutral-950/85 backdrop-blur-md overflow-y-auto animate-fade-in">
-      <div className="relative w-full max-w-5xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-4 max-h-[92vh] flex flex-col">
-        
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-neutral-950/85 backdrop-blur-md overflow-y-auto animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      {/* Backdrop overlay */}
+      <div 
+        className="fixed inset-0 -z-10" 
+        onClick={onClose} 
+        aria-hidden="true" 
+      />
+
+      <div 
+        className="relative w-full max-w-5xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-4 max-h-[92vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Top Header */}
         <div className="bg-neutral-950 px-6 py-4 border-b border-neutral-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -147,22 +220,24 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base font-extrabold text-white">Merchant CRM & Retargeting Lead Vault</span>
+                <span className="text-base font-extrabold text-white">Merchant CRM & Product Hub</span>
                 <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded uppercase">
                   Private Admin
                 </span>
               </div>
               <p className="text-xs text-neutral-400">
-                Track interested buyers, capture abandoned carts, and follow up via WhatsApp / Email.
+                Track leads, upload your product PDF, configure bank details, and retarget abandoned visitors.
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 py-1 px-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer border border-neutral-800"
+            title="Return to main page (Esc)"
           >
-            <X className="w-5 h-5" />
+            <span className="text-xs font-semibold">Exit</span>
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -178,7 +253,19 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>All Leads & Customers ({totalLeads})</span>
+              <span>All Leads ({totalLeads})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('product')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'product'
+                  ? 'bg-emerald-400 text-neutral-950 shadow-md shadow-emerald-500/20'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
+              }`}
+            >
+              <FileUp className="w-3.5 h-3.5" />
+              <span>Upload Product (PDF)</span>
             </button>
 
             <button
@@ -202,7 +289,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" />
-              <span>Retargeting Scripts (1-Click)</span>
+              <span>Retargeting Scripts</span>
             </button>
           </div>
 
@@ -210,13 +297,133 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
             <button
               onClick={exportToCsv}
               className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-              title="Export all leads to CSV format for Meta/Google Ads & Email Tools"
+              title="Export all leads to CSV"
             >
               <Download className="w-3.5 h-3.5 text-emerald-400" />
               <span>Export CSV</span>
             </button>
           )}
         </div>
+
+        {/* TAB: UPLOAD PRODUCT (PDF) */}
+        {activeTab === 'product' && (
+          <div className="p-6 space-y-6 overflow-y-auto flex-1 max-w-2xl mx-auto w-full">
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <FileUp className="w-4 h-4 text-emerald-400" />
+                <span>Upload Your Digital Product (PDF)</span>
+              </h3>
+              <p className="text-xs text-neutral-400">
+                Upload your digital product playbook or swipe files here. Whenever a buyer pays or submits their bank transfer, this exact PDF will be delivered immediately to them for download.
+              </p>
+            </div>
+
+            {/* Current Active Product Card */}
+            <div className="p-4 rounded-2xl bg-neutral-950 border border-emerald-500/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                  Current Active Product File:
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono">
+                  Live in Checkout
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between bg-neutral-900 p-3 rounded-xl border border-neutral-800">
+                <div className="flex items-center gap-3 truncate mr-2">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="truncate">
+                    <div className="text-xs font-bold text-white truncate" title={productInfo.originalName}>
+                      {productInfo.originalName}
+                    </div>
+                    <div className="text-[10px] text-neutral-400">
+                      Size: {productInfo.fileSize} • Uploaded: {new Date(productInfo.uploadedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+
+                <a
+                  href="/api/download-product"
+                  download={productInfo.originalName}
+                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer border border-emerald-500/30"
+                  title="Test download what your buyers receive"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Test Download</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Feedback Notifications */}
+            {uploadSuccess && (
+              <div className="p-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>Product PDF successfully uploaded and set live for all customers!</span>
+              </div>
+            )}
+
+            {uploadError && (
+              <div className="p-3.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+
+            {/* Upload Dropzone / Picker */}
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="p-8 border-2 border-dashed border-neutral-700 hover:border-emerald-400 bg-neutral-950/70 hover:bg-neutral-950 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all group space-y-3"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              <div className="w-14 h-14 rounded-2xl bg-neutral-900 group-hover:bg-emerald-500/20 text-neutral-400 group-hover:text-emerald-400 flex items-center justify-center transition-colors">
+                {isUploading ? (
+                  <span className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <UploadCloud className="w-7 h-7" />
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-bold text-white group-hover:text-emerald-400 transition-colors">
+                  {isUploading ? 'Uploading Product PDF...' : 'Click to select or drop your Product PDF file'}
+                </div>
+                <p className="text-xs text-neutral-400 max-w-sm">
+                  Supported format: <strong>.pdf</strong> (Up to 50 MB). Replaces the current product file automatically.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={isUploading}
+                className="px-4 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-colors"
+              >
+                {isUploading ? 'Uploading...' : 'Browse Computer for PDF'}
+              </button>
+            </div>
+
+            <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 text-xs text-neutral-400 space-y-1.5">
+              <span className="font-bold text-white block">💡 How It Works:</span>
+              <p>
+                1. Select your final PDF file (e.g. your guide, proposal swipe files, or client acquisition playbook).
+              </p>
+              <p>
+                2. As soon as you upload it, our system saves it directly to your application's secure download vault.
+              </p>
+              <p>
+                3. When any customer completes the payment process, the "Download PDF" button will immediately deliver this file to them.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Tab 1: Leads and Customers */}
         {activeTab === 'leads' && (
@@ -312,7 +519,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                     ) : (
                       filteredLeads.map((lead) => (
                         <tr key={lead.id} className="hover:bg-neutral-900/40 transition-colors">
-                          {/* Name and Email */}
                           <td className="py-3.5 px-4">
                             <div className="font-bold text-white text-xs">{lead.name}</div>
                             <div className="text-[11px] text-neutral-400 flex items-center gap-1 mt-0.5">
@@ -330,7 +536,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                             </div>
                           </td>
 
-                          {/* Phone */}
                           <td className="py-3.5 px-4 font-mono text-[11px]">
                             {lead.phone && lead.phone !== 'Not provided' ? (
                               <div className="flex items-center gap-1.5 text-emerald-300">
@@ -350,13 +555,11 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                             <div className="text-[10px] text-neutral-400 mt-0.5">{lead.niche}</div>
                           </td>
 
-                          {/* Package */}
                           <td className="py-3.5 px-4">
                             <div className="font-semibold text-white truncate max-w-[130px]">{lead.tierName}</div>
                             <div className="text-emerald-400 font-mono font-bold">${lead.amount}.00</div>
                           </td>
 
-                          {/* Status */}
                           <td className="py-3.5 px-4">
                             <select
                               value={lead.status}
@@ -381,7 +584,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                             )}
                           </td>
 
-                          {/* Date */}
                           <td className="py-3.5 px-4 text-neutral-400 text-[11px] whitespace-nowrap">
                             {new Date(lead.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                             <div className="text-[10px] text-neutral-500">
@@ -389,10 +591,8 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                             </div>
                           </td>
 
-                          {/* Actions */}
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              {/* WhatsApp Chat button */}
                               {lead.phone && lead.phone !== 'Not provided' && (
                                 <a
                                   href={getWhatsAppLink(lead)}
@@ -405,7 +605,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                                 </a>
                               )}
 
-                              {/* Email button */}
                               <a
                                 href={getMailtoLink(lead)}
                                 className="p-1.5 rounded-lg bg-neutral-800 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors"
@@ -569,7 +768,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               </p>
             </div>
 
-            {/* Template 1: WhatsApp Abandoned Cart */}
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-emerald-400">Script #1: WhatsApp Follow-Up (Within 1 Hour)</span>
@@ -589,7 +787,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               </div>
             </div>
 
-            {/* Template 2: Bank Transfer Verification Reminder */}
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-amber-400">Script #2: Pending Bank Transfer Slip Reminder</span>
@@ -609,7 +806,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               </div>
             </div>
 
-            {/* Template 3: 24-Hour Special Discount Retargeting */}
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-emerald-400">Script #3: 24-Hour Final Urgency Nudge</span>

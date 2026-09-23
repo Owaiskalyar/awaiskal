@@ -26,3 +26,11 @@ export interface BankAccountDetails {
   branchCity: string;
   instructions: string;
 }
+
+export interface ProductFileInfo {
+  filename: string;
+  originalName: string;
+  fileSize: string;
+  uploadedAt: string;
+  downloadUrl: string;
+}

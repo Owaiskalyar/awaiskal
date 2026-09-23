@@ -1,8 +1,17 @@
-import { Lead, BankAccountDetails } from '../types/crm';
+import { Lead, BankAccountDetails, ProductFileInfo } from '../types/crm';
 import { DEFAULT_BANK_DETAILS } from '../data/bankDetails';
 
 const LEADS_STORAGE_KEY = 'upwork_acquisition_leads_v1';
 const BANK_STORAGE_KEY = 'upwork_bank_details_v1';
+const PRODUCT_STORAGE_KEY = 'upwork_product_file_v1';
+
+const DEFAULT_PRODUCT_FILE: ProductFileInfo = {
+  filename: 'active-product.pdf',
+  originalName: 'Upwork-Client-Acquisition-Master-System.pdf',
+  fileSize: '14.2 MB',
+  uploadedAt: new Date().toISOString(),
+  downloadUrl: '/api/download-product'
+};
 
 const INITIAL_DEMO_LEADS: Lead[] = [
   {
@@ -97,7 +106,6 @@ export const leadService = {
   },
 
   saveLead: async (lead: Lead): Promise<Lead> => {
-    // Save to local storage first
     let currentLeads: Lead[] = [];
     try {
       const local = localStorage.getItem(LEADS_STORAGE_KEY);
@@ -115,7 +123,6 @@ export const leadService = {
 
     localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(currentLeads));
 
-    // Send to backend API
     try {
       await fetch('/api/leads', {
         method: 'POST',
@@ -123,7 +130,7 @@ export const leadService = {
         body: JSON.stringify(lead)
       });
     } catch {
-      // Backend may be offline in dev/preview, localStorage holds state
+      // ignore
     }
 
     return lead;
@@ -189,5 +196,70 @@ export const leadService = {
     } catch {
       // ignore
     }
+  },
+
+  getProductFile: async (): Promise<ProductFileInfo> => {
+    try {
+      const res = await fetch('/api/product-file');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.filename) {
+          localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(data));
+          return data;
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    const local = localStorage.getItem(PRODUCT_STORAGE_KEY);
+    if (local) {
+      try {
+        return JSON.parse(local);
+      } catch {
+        // pass
+      }
+    }
+
+    return DEFAULT_PRODUCT_FILE;
+  },
+
+  uploadProductFile: async (file: File): Promise<ProductFileInfo> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64Data = reader.result as string;
+          const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+          
+          const payload = {
+            filename: file.name,
+            originalName: file.name,
+            fileSize: fileSizeMB,
+            base64Data
+          };
+
+          const res = await fetch('/api/upload-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(data.product));
+            resolve(data.product);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            reject(new Error(errData.details || errData.error || 'Upload failed'));
+          }
+        } catch (e: unknown) {
+          const err = e instanceof Error ? e : new Error('Network error uploading product');
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed reading file'));
+      reader.readAsDataURL(file);
+    });
   }
 };

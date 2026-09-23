@@ -15,11 +15,11 @@ import {
   Phone,
   Mail,
   User,
-  AlertCircle
+  FileText
 } from 'lucide-react';
 import { PRICING_TIERS } from '../data/productData';
 import { leadService } from '../services/leadService';
-import { BankAccountDetails, Lead } from '../types/crm';
+import { BankAccountDetails, Lead, ProductFileInfo } from '../types/crm';
 import { DEFAULT_BANK_DETAILS } from '../data/bankDetails';
 
 interface CheckoutModalProps {
@@ -48,6 +48,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [currentLeadId, setCurrentLeadId] = useState<string>('');
   const [orderReference, setOrderReference] = useState<string>('');
   const [bankDetails, setBankDetails] = useState<BankAccountDetails>(DEFAULT_BANK_DETAILS);
+  const [productInfo, setProductInfo] = useState<ProductFileInfo>({
+    filename: 'active-product.pdf',
+    originalName: 'Upwork-Client-Acquisition-Master-System.pdf',
+    fileSize: '14.2 MB',
+    uploadedAt: new Date().toISOString(),
+    downloadUrl: '/api/download-product'
+  });
 
   useEffect(() => {
     if (selectedTierId) {
@@ -57,9 +64,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      // Load latest bank details
       leadService.getBankDetails().then(setBankDetails);
-      // Generate unique order reference
+      leadService.getProductFile().then(setProductInfo);
       const ref = `UPW-${Math.floor(10000 + Math.random() * 90000)}`;
       setOrderReference(ref);
       setCurrentLeadId(`lead-${Date.now()}`);
@@ -67,6 +73,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setBankTxRef('');
     }
   }, [isOpen]);
+
+  // Support pressing Escape to close and return to the main page
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -79,7 +96,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     e.preventDefault();
     if (!email || !name) return;
 
-    // Capture as abandoned lead in CRM immediately for retargeting!
     const leadData: Lead = {
       id: currentLeadId,
       name,
@@ -142,10 +158,27 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-neutral-950/85 backdrop-blur-md overflow-y-auto animate-fade-in">
-      <div className="relative w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-6">
-        
-        {/* Top Header with Step indicator */}
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-neutral-950/85 backdrop-blur-md overflow-y-auto animate-fade-in"
+      onClick={(e) => {
+        // If clicking outside the modal container, close and return to main page
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      {/* Clickable backdrop overlay to ensure outside clicks dismiss modal */}
+      <div 
+        className="fixed inset-0 -z-10" 
+        onClick={onClose} 
+        aria-hidden="true" 
+      />
+
+      <div 
+        className="relative w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Top Header with Step indicator and Cross Close button */}
         <div className="bg-neutral-950 px-6 py-4 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {step === 'payment' && (
@@ -175,12 +208,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
           </div>
 
+          {/* Prominent Cross Icon to return to main page */}
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
-            aria-label="Close checkout"
+            className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 bg-neutral-900/60 border border-neutral-800 transition-all cursor-pointer group"
+            aria-label="Close and return to main page"
+            title="Return to main page (Esc)"
           >
-            <X className="w-5 h-5" />
+            <span className="text-[11px] font-semibold text-neutral-400 group-hover:text-white">Exit</span>
+            <X className="w-4 h-4 text-neutral-400 group-hover:text-white" />
           </button>
         </div>
 
@@ -198,11 +235,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <p className="text-sm text-neutral-300 max-w-md mx-auto">
                 {paymentMethod === 'bank' ? (
                   <>
-                    Thank you, <strong className="text-white">{name}</strong>! Your order reference <strong className="text-emerald-400">{orderReference}</strong> has been logged in our CRM. Once payment is confirmed, full access is granted immediately.
+                    Thank you, <strong className="text-white">{name}</strong>! Your order reference <strong className="text-emerald-400">{orderReference}</strong> has been logged in our CRM. Download your digital product PDF package below.
                   </>
                 ) : (
                   <>
-                    Your order is confirmed and instant access links have been registered for <strong className="text-emerald-400">{email}</strong>.
+                    Your order is confirmed and instant access links have been registered for <strong className="text-emerald-400">{email}</strong>. Download your files below.
                   </>
                 )}
               </p>
@@ -226,49 +263,80 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            {/* Downloads Vault */}
+            {/* Downloads Vault - Directly links to uploaded PDF */}
             <div className="space-y-3 max-w-md mx-auto text-left">
-              <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                Digital Assets Ready For You:
+              <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Your Digital Product Package:</span>
+                <span className="text-[10px] text-emerald-400 font-medium">Ready for Download</span>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-neutral-950 border border-emerald-500/30 flex items-center justify-between">
+              {/* Real PDF Product Download */}
+              <div className="p-3.5 rounded-xl bg-neutral-950 border border-emerald-500/40 flex items-center justify-between">
+                <div className="flex items-center gap-3 truncate mr-2">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="truncate">
+                    <div className="text-xs font-bold text-white truncate" title={productInfo.originalName}>
+                      {productInfo.originalName || "Upwork-Client-Acquisition-Master-System.pdf"}
+                    </div>
+                    <div className="text-[10px] text-neutral-400">
+                      PDF Document • {productInfo.fileSize || "14.2 MB"} • Full Playbook
+                    </div>
+                  </div>
+                </div>
+
+                <a
+                  href="/api/download-product"
+                  download={productInfo.originalName || "Upwork-Client-Acquisition-System.pdf"}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-extrabold transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </a>
+              </div>
+
+              {/* Notion Workspace */}
+              <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                  <div className="w-9 h-9 rounded-lg bg-neutral-800 text-neutral-300 flex items-center justify-center font-bold text-xs shrink-0">
                     📁
                   </div>
                   <div>
                     <div className="text-xs font-bold text-white">The Notion Acquisition Workspace</div>
-                    <div className="text-[10px] text-neutral-400">Templates, Scripts, Playbook, Checklist</div>
+                    <div className="text-[10px] text-neutral-400">Interactive Templates, Scripts, Playbook</div>
                   </div>
                 </div>
                 <button
-                  onClick={() => alert("Notion Workspace duplicate link: You can now duplicate the full workspace into your personal Notion account.")}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-400 text-neutral-950 text-xs font-bold hover:bg-emerald-300 transition-colors flex items-center gap-1 cursor-pointer"
+                  onClick={() => alert("Notion Workspace: Template duplicate link opened in new tab.")}
+                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer shrink-0"
                 >
                   <span>Access</span>
                   <ExternalLink className="w-3 h-3" />
                 </button>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-neutral-800 text-neutral-300 flex items-center justify-center font-bold text-xs">
-                    📄
+              {includeBump && (
+                <div className="p-3.5 rounded-xl bg-neutral-950 border border-amber-500/30 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
+                      🛡️
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-white">Contract Protection & Dispute Kit</div>
+                      <div className="text-[10px] text-neutral-400">Order Bump bonus package included</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-white">15 Copy-Paste Proposal Swipe Files (PDF)</div>
-                    <div className="text-[10px] text-neutral-400">All niches • High-ticket closing formats</div>
-                  </div>
+                  <a
+                    href="/api/download-product"
+                    download="Contract-Dispute-Kit.pdf"
+                    className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download</span>
+                  </a>
                 </div>
-                <button
-                  onClick={() => alert("Downloading: 15-winning-proposals-swipe-vault.pdf (14.2 MB)")}
-                  className="px-3 py-1.5 rounded-lg bg-neutral-800 text-white text-xs font-semibold hover:bg-neutral-700 transition-colors flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3 h-3" />
-                  <span>Download</span>
-                </button>
-              </div>
+              )}
             </div>
 
             {/* Navigation buttons */}
@@ -285,7 +353,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 onClick={onClose}
                 className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-xs transition-colors cursor-pointer"
               >
-                Done • Back to Page
+                Done • Return to Main Page
               </button>
             </div>
           </div>
@@ -321,7 +389,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            {/* Customer Contact Details (Captured into CRM for Retargeting) */}
+            {/* Customer Contact Details */}
             <div className="space-y-3">
               <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
                 2. Contact Information:
@@ -424,20 +492,30 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </label>
             </div>
 
-            {/* Price Preview & Proceed Button */}
-            <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 flex items-center justify-between">
+            {/* Price Preview & Action Buttons */}
+            <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <span className="text-xs text-neutral-400">Total Investment:</span>
                 <div className="text-2xl font-black text-emerald-400 font-mono">${totalPrice}.00</div>
               </div>
 
-              <button
-                type="submit"
-                className="py-3 px-6 rounded-xl font-extrabold text-neutral-950 bg-emerald-400 hover:bg-emerald-300 transition-all shadow-lg shadow-emerald-500/25 flex items-center gap-2 cursor-pointer text-sm"
-              >
-                <span>Continue to Payment</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-1/2 sm:w-auto px-4 py-3 rounded-xl border border-neutral-800 hover:border-neutral-700 bg-neutral-900 text-neutral-400 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Return to Page
+                </button>
+
+                <button
+                  type="submit"
+                  className="w-1/2 sm:w-auto py-3 px-6 rounded-xl font-extrabold text-neutral-950 bg-emerald-400 hover:bg-emerald-300 transition-all shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm"
+                >
+                  <span>Continue to Payment</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </form>
         )}
@@ -455,9 +533,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Change Package / Details</span>
               </button>
-              <div className="text-neutral-400">
-                Customer: <strong className="text-white">{name}</strong> ({email})
-              </div>
+              
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-neutral-400 hover:text-white font-semibold transition-colors cursor-pointer flex items-center gap-1"
+                title="Cancel and return to main page"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Return to Main Page</span>
+              </button>
             </div>
 
             {/* Payment Method Switcher Tabs */}
@@ -551,6 +636,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         type="button"
                         onClick={() => copyToClipboard(bankDetails.bankName, 'bank')}
                         className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                        title="Copy Bank Name"
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -565,6 +651,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         type="button"
                         onClick={() => copyToClipboard(bankDetails.accountTitle, 'title')}
                         className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                        title="Copy Account Title"
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -579,6 +666,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         type="button"
                         onClick={() => copyToClipboard(bankDetails.iban || bankDetails.accountNumber, 'iban')}
                         className="text-emerald-400 hover:text-emerald-300 cursor-pointer shrink-0"
+                        title="Copy IBAN / Account Number"
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -593,6 +681,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         type="button"
                         onClick={() => copyToClipboard(bankDetails.swiftCode, 'swift')}
                         className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                        title="Copy SWIFT"
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -609,7 +698,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 {/* Reference Code & Transfer Confirmation Input */}
                 <div className="bg-emerald-950/30 border border-emerald-500/20 p-3.5 rounded-xl space-y-2 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-neutral-300 font-medium">Your Order Reference Code (Required in transfer notes):</span>
+                    <span className="text-neutral-300 font-medium">Your Order Reference Code (Required in transfer remarks):</span>
                     <span className="font-mono font-bold text-emerald-300 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
                       {orderReference}
                     </span>
@@ -621,7 +710,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. TRX-8492018 or bank reference number"
+                      placeholder="e.g. TRX-8492018 or bank transfer slip ID"
                       value={bankTxRef}
                       onChange={(e) => setBankTxRef(e.target.value)}
                       className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-lg px-3 py-2 text-xs text-white focus:outline-none"
@@ -666,21 +755,29 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <button
                 type="button"
                 onClick={() => setStep('details')}
-                className="text-emerald-400 hover:text-emerald-300 font-bold underline"
+                className="text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer"
               >
                 Edit Order
               </button>
             </div>
 
-            {/* Action Buttons: Return & Submit */}
+            {/* Action Buttons: Return to Main Page, Return to Details, & Submit */}
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
               <button
                 type="button"
+                onClick={onClose}
+                className="w-full sm:w-auto px-4 py-3.5 rounded-xl border border-neutral-800 hover:border-neutral-700 bg-neutral-950 text-neutral-400 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>Exit to Main Page</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setStep('details')}
-                className="w-full sm:w-auto px-5 py-3.5 rounded-xl border border-neutral-800 hover:border-neutral-700 bg-neutral-950 text-neutral-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full sm:w-auto px-4 py-3.5 rounded-xl border border-neutral-800 hover:border-neutral-700 bg-neutral-900 text-neutral-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
-                <span>Return to Details</span>
+                <span>Back to Details</span>
               </button>
 
               <button

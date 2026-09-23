@@ -19,13 +19,27 @@ interface LeadRecord {
   notes?: string;
 }
 
+interface ProductMeta {
+  filename: string;
+  originalName: string;
+  fileSize: string;
+  uploadedAt: string;
+  downloadUrl: string;
+}
+
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const LEADS_FILE = path.join(DATA_DIR, "leads.json");
 const BANK_FILE = path.join(DATA_DIR, "bank.json");
+const PRODUCT_FILE = path.join(DATA_DIR, "product.json");
+const PUBLIC_DOWNLOADS_DIR = path.resolve(process.cwd(), "public", "downloads");
+const ACTIVE_PDF_PATH = path.join(PUBLIC_DOWNLOADS_DIR, "active-product.pdf");
 
 function ensureDataFiles() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(PUBLIC_DOWNLOADS_DIR)) {
+    fs.mkdirSync(PUBLIC_DOWNLOADS_DIR, { recursive: true });
   }
   if (!fs.existsSync(LEADS_FILE)) {
     fs.writeFileSync(LEADS_FILE, JSON.stringify([], null, 2));
@@ -42,12 +56,26 @@ function ensureDataFiles() {
     };
     fs.writeFileSync(BANK_FILE, JSON.stringify(defaultBank, null, 2));
   }
+  if (!fs.existsSync(PRODUCT_FILE)) {
+    const defaultProduct: ProductMeta = {
+      filename: "active-product.pdf",
+      originalName: "Upwork-Client-Acquisition-Master-System.pdf",
+      fileSize: "14.2 MB",
+      uploadedAt: new Date().toISOString(),
+      downloadUrl: "/api/download-product"
+    };
+    fs.writeFileSync(PRODUCT_FILE, JSON.stringify(defaultProduct, null, 2));
+  }
 }
 
 async function startServer() {
   ensureDataFiles();
   const app = express();
-  app.use(express.json());
+  
+  // Allow up to 50MB for uploading product PDFs via base64
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Health check
@@ -84,7 +112,7 @@ async function startServer() {
 
       fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
       res.json({ success: true, lead: newLead });
-    } catch (e) {
+    } catch {
       res.status(500).json({ error: "Failed to save lead" });
     }
   });
@@ -125,6 +153,97 @@ async function startServer() {
       res.status(500).json({ error: "Failed to save bank details" });
     }
   });
+
+  // Product File Metadata API
+  app.get("/api/product-file", (_req, res) => {
+    try {
+      const data = fs.readFileSync(PRODUCT_FILE, "utf-8");
+      res.json(JSON.parse(data));
+    } catch {
+      res.json({
+        filename: "active-product.pdf",
+        originalName: "Upwork-Client-Acquisition-Master-System.pdf",
+        fileSize: "14.2 MB",
+        uploadedAt: new Date().toISOString(),
+        downloadUrl: "/api/download-product"
+      });
+    }
+  });
+
+  // Upload Product File (PDF) API
+  app.post("/api/upload-product", (req, res) => {
+    try {
+      const { filename, originalName, fileSize, base64Data } = req.body;
+      if (!base64Data) {
+        return res.status(400).json({ error: "Missing file data" });
+      }
+
+      // Strip data url prefix if present (e.g. data:application/pdf;base64,...)
+      const cleanedBase64 = base64Data.replace(/^data:application\/pdf;base64,/, "").replace(/^data:.*?;base64,/, "");
+      const buffer = Buffer.from(cleanedBase64, "base64");
+
+      // Write to public/downloads/active-product.pdf
+      fs.writeFileSync(ACTIVE_PDF_PATH, buffer);
+
+      // If dist/downloads exists (in production build), copy it there as well
+      const distDownloadsDir = path.resolve(process.cwd(), "dist", "downloads");
+      if (fs.existsSync(distDownloadsDir)) {
+        fs.writeFileSync(path.join(distDownloadsDir, "active-product.pdf"), buffer);
+      }
+
+      const productMeta: ProductMeta = {
+        filename: "active-product.pdf",
+        originalName: originalName || filename || "Upwork-Master-Product.pdf",
+        fileSize: fileSize || `${(buffer.length / (1024 * 1024)).toFixed(2)} MB`,
+        uploadedAt: new Date().toISOString(),
+        downloadUrl: "/api/download-product"
+      };
+
+      fs.writeFileSync(PRODUCT_FILE, JSON.stringify(productMeta, null, 2));
+      res.json({ success: true, product: productMeta });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      res.status(500).json({ error: "Failed to upload file", details: message });
+    }
+  });
+
+  // Download Product File endpoint
+  app.get("/api/download-product", (_req, res) => {
+    try {
+      let meta: ProductMeta = {
+        filename: "active-product.pdf",
+        originalName: "Upwork-Client-Acquisition-Master-System.pdf",
+        fileSize: "14.2 MB",
+        uploadedAt: new Date().toISOString(),
+        downloadUrl: "/api/download-product"
+      };
+
+      if (fs.existsSync(PRODUCT_FILE)) {
+        try {
+          meta = JSON.parse(fs.readFileSync(PRODUCT_FILE, "utf-8"));
+        } catch {
+          // use default
+        }
+      }
+
+      if (fs.existsSync(ACTIVE_PDF_PATH)) {
+        return res.download(ACTIVE_PDF_PATH, meta.originalName || "Upwork-Client-Acquisition-System.pdf");
+      }
+
+      // Check dist fallback
+      const distFallback = path.resolve(process.cwd(), "dist", "downloads", "active-product.pdf");
+      if (fs.existsSync(distFallback)) {
+        return res.download(distFallback, meta.originalName || "Upwork-Client-Acquisition-System.pdf");
+      }
+
+      res.status(404).json({ error: "Product file not found. Please upload it in Merchant CRM." });
+    } catch {
+      res.status(500).json({ error: "Error downloading product file" });
+    }
+  });
+
+  // Serve static downloads directly if requested
+  app.use("/downloads", express.static(PUBLIC_DOWNLOADS_DIR));
 
   const distPath = path.resolve(process.cwd(), "dist");
   const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(path.join(distPath, "index.html"));
