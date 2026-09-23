@@ -1,0 +1,6 @@
+{
+  "name": "Client Acquisition System on Upwork",
+  "description": "The high-converting client acquisition system and proposal framework for freelancers on Upwork.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
