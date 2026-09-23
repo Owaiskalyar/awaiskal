@@ -5,16 +5,22 @@ import {
   ShieldCheck, 
   Lock, 
   Zap, 
-  Sparkles, 
   CreditCard, 
   Download, 
   ExternalLink, 
   ArrowRight,
-  CheckCircle2,
-  FileText,
-  Copy
+  ArrowLeft,
+  Copy,
+  Building2,
+  Phone,
+  Mail,
+  User,
+  AlertCircle
 } from 'lucide-react';
 import { PRICING_TIERS } from '../data/productData';
+import { leadService } from '../services/leadService';
+import { BankAccountDetails, Lead } from '../types/crm';
+import { DEFAULT_BANK_DETAILS } from '../data/bankDetails';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -27,16 +33,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onClose,
   selectedTierId
 }) => {
+  const [step, setStep] = useState<'details' | 'payment' | 'success'>('details');
   const [tierId, setTierId] = useState<string>(selectedTierId || 'complete');
   const [includeBump, setIncludeBump] = useState<boolean>(true);
   const [name, setName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
+  const [phone, setPhone] = useState<string>('');
   const [niche, setNiche] = useState<string>('Web & Mobile Dev');
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'paypal' | 'gpay'>('card');
+  const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card' | 'paypal' | 'gpay'>('bank');
   const [cardNumber, setCardNumber] = useState<string>('4242 •••• •••• 4242');
+  const [bankTxRef, setBankTxRef] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [isSuccess, setIsSuccess] = useState<boolean>(false);
-  const [copiedKey, setCopiedKey] = useState<boolean>(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [currentLeadId, setCurrentLeadId] = useState<string>('');
+  const [orderReference, setOrderReference] = useState<string>('');
+  const [bankDetails, setBankDetails] = useState<BankAccountDetails>(DEFAULT_BANK_DETAILS);
 
   useEffect(() => {
     if (selectedTierId) {
@@ -44,64 +55,156 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
   }, [selectedTierId]);
 
+  useEffect(() => {
+    if (isOpen) {
+      // Load latest bank details
+      leadService.getBankDetails().then(setBankDetails);
+      // Generate unique order reference
+      const ref = `UPW-${Math.floor(10000 + Math.random() * 90000)}`;
+      setOrderReference(ref);
+      setCurrentLeadId(`lead-${Date.now()}`);
+      setStep('details');
+      setBankTxRef('');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const currentTier = PRICING_TIERS.find(t => t.id === tierId) || PRICING_TIERS[1];
   const bumpPrice = 17;
   const totalPrice = currentTier.price + (includeBump ? bumpPrice : 0);
 
-  const handlePay = (e: React.FormEvent) => {
+  // Step 1: Proceed to Payment and capture lead immediately in CRM
+  const handleProceedToPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
+    if (!email || !name) return;
 
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setIsSuccess(true);
-    }, 1200);
+    // Capture as abandoned lead in CRM immediately for retargeting!
+    const leadData: Lead = {
+      id: currentLeadId,
+      name,
+      email,
+      phone: phone || 'Not provided',
+      niche,
+      tierId,
+      tierName: currentTier.name,
+      amount: totalPrice,
+      paymentMethod,
+      status: 'abandoned_lead',
+      createdAt: new Date().toISOString(),
+      referenceId: orderReference,
+      notes: 'Customer entered details and reached payment selection page.'
+    };
+
+    leadService.saveLead(leadData);
+    setStep('payment');
   };
 
-  const copyLicense = () => {
-    navigator.clipboard.writeText('UPW-SYSTEM-2026-VIP-4829X');
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 2000);
+  // Step 2: Finalize Payment
+  const handleFinalizePayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsProcessing(true);
+
+    const isBank = paymentMethod === 'bank';
+    const status: Lead['status'] = isBank ? 'pending_bank_transfer' : 'paid';
+
+    const updatedLead: Lead = {
+      id: currentLeadId,
+      name,
+      email,
+      phone: phone || 'Not provided',
+      niche,
+      tierId,
+      tierName: currentTier.name,
+      amount: totalPrice,
+      paymentMethod,
+      status,
+      createdAt: new Date().toISOString(),
+      referenceId: orderReference,
+      bankTransactionRef: isBank ? bankTxRef : undefined,
+      notes: isBank 
+        ? `Pending Bank Transfer. Tx Ref: ${bankTxRef || 'Not entered yet'}` 
+        : 'Payment successfully processed.'
+    };
+
+    leadService.saveLead(updatedLead);
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      setStep('success');
+    }, 1000);
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(label);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-neutral-950/80 backdrop-blur-md overflow-y-auto animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-neutral-950/85 backdrop-blur-md overflow-y-auto animate-fade-in">
       <div className="relative w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-6">
-        {/* Top Header */}
+        
+        {/* Top Header with Step indicator */}
         <div className="bg-neutral-950 px-6 py-4 border-b border-neutral-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {step === 'payment' && (
+              <button
+                type="button"
+                onClick={() => setStep('details')}
+                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-neutral-900 px-2.5 py-1.5 rounded-lg border border-neutral-800 transition-colors cursor-pointer"
+                title="Return to details"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+            )}
+
             <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
               ⚡
             </div>
             <div>
-              <span className="text-sm font-bold text-white">Instant Checkout</span>
+              <span className="text-sm font-bold text-white">
+                {step === 'details' && 'Step 1: Your Details & Package'}
+                {step === 'payment' && 'Step 2: Choose Payment Method'}
+                {step === 'success' && 'Order Confirmed & Instant Access'}
+              </span>
               <span className="text-xs text-neutral-400 block sm:inline sm:ml-2">
-                • 256-Bit SSL Encrypted
+                • Ref: {orderReference}
               </span>
             </div>
           </div>
+
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+            aria-label="Close checkout"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {isSuccess ? (
-          /* SUCCESS SCREEN */
+        {/* STEP 3: SUCCESS SCREEN */}
+        {step === 'success' && (
           <div className="p-6 sm:p-8 space-y-6 text-center">
             <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20 animate-bounce">
               <Check className="w-8 h-8 stroke-[3]" />
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-2xl font-black text-white">Welcome to the System!</h3>
+              <h3 className="text-2xl font-black text-white">
+                {paymentMethod === 'bank' ? 'Bank Transfer Details Submitted!' : 'Welcome to the System!'}
+              </h3>
               <p className="text-sm text-neutral-300 max-w-md mx-auto">
-                Your order is confirmed and receipt sent to <strong className="text-emerald-400">{email || 'your email'}</strong>. Your digital download vault is ready below.
+                {paymentMethod === 'bank' ? (
+                  <>
+                    Thank you, <strong className="text-white">{name}</strong>! Your order reference <strong className="text-emerald-400">{orderReference}</strong> has been logged in our CRM. Once payment is confirmed, full access is granted immediately.
+                  </>
+                ) : (
+                  <>
+                    Your order is confirmed and instant access links have been registered for <strong className="text-emerald-400">{email}</strong>.
+                  </>
+                )}
               </p>
             </div>
 
@@ -109,24 +212,24 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 text-left space-y-2 max-w-md mx-auto">
               <div className="flex items-center justify-between text-xs text-neutral-400">
                 <span>Your Master License Key:</span>
-                <span className="text-emerald-400 font-bold">LIFETIME ACCESS</span>
+                <span className="text-emerald-400 font-bold font-mono">{orderReference}</span>
               </div>
               <div className="flex items-center justify-between bg-neutral-900 p-2.5 rounded-lg border border-neutral-800 font-mono text-xs text-white">
-                <span>UPW-SYSTEM-2026-VIP-4829X</span>
+                <span>UPW-SYSTEM-2026-{orderReference.replace('UPW-', '')}X</span>
                 <button
-                  onClick={copyLicense}
+                  onClick={() => copyToClipboard(`UPW-SYSTEM-2026-${orderReference.replace('UPW-', '')}X`, 'license')}
                   className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>{copiedKey ? 'Copied!' : 'Copy'}</span>
+                  <span>{copiedKey === 'license' ? 'Copied!' : 'Copy'}</span>
                 </button>
               </div>
             </div>
 
-            {/* Instant Download Links */}
+            {/* Downloads Vault */}
             <div className="space-y-3 max-w-md mx-auto text-left">
               <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                Instant Access Downloads:
+                Digital Assets Ready For You:
               </div>
 
               <div className="p-3.5 rounded-xl bg-neutral-950 border border-emerald-500/30 flex items-center justify-between">
@@ -135,18 +238,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     📁
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-white">The Client Acquisition Notion Workspace</div>
+                    <div className="text-xs font-bold text-white">The Notion Acquisition Workspace</div>
                     <div className="text-[10px] text-neutral-400">Templates, Scripts, Playbook, Checklist</div>
                   </div>
                 </div>
-                <a
-                  href="#notion"
-                  onClick={(e) => { e.preventDefault(); alert("Simulated: Notion Workspace duplicate template opened! (Included in live product package)"); }}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-400 text-neutral-950 text-xs font-bold hover:bg-emerald-300 transition-colors flex items-center gap-1"
+                <button
+                  onClick={() => alert("Notion Workspace duplicate link: You can now duplicate the full workspace into your personal Notion account.")}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-400 text-neutral-950 text-xs font-bold hover:bg-emerald-300 transition-colors flex items-center gap-1 cursor-pointer"
                 >
-                  <span>Duplicate</span>
+                  <span>Access</span>
                   <ExternalLink className="w-3 h-3" />
-                </a>
+                </button>
               </div>
 
               <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">
@@ -160,52 +262,42 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   </div>
                 </div>
                 <button
-                  onClick={() => alert("Simulated: Downloading 15-winning-proposals-swipe-vault.pdf (14.2 MB)")}
+                  onClick={() => alert("Downloading: 15-winning-proposals-swipe-vault.pdf (14.2 MB)")}
                   className="px-3 py-1.5 rounded-lg bg-neutral-800 text-white text-xs font-semibold hover:bg-neutral-700 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Download className="w-3 h-3" />
                   <span>Download</span>
                 </button>
               </div>
-
-              {includeBump && (
-                <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-xs">
-                      🛡️
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white">Contract Protection & Dispute Kit</div>
-                      <div className="text-[10px] text-neutral-400">Order Bump bonus package</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => alert("Simulated: Downloading contract-protection-kit.pdf")}
-                    className="px-3 py-1.5 rounded-lg bg-neutral-800 text-white text-xs font-semibold hover:bg-neutral-700 transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Download</span>
-                  </button>
-                </div>
-              )}
             </div>
 
-            <div className="pt-2">
+            {/* Navigation buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto">
               <button
-                onClick={onClose}
-                className="w-full max-w-md py-3 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-sm transition-colors cursor-pointer"
+                type="button"
+                onClick={() => setStep('payment')}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold transition-colors cursor-pointer"
               >
-                Done • Back to Landing Page
+                ← Return to Payment Options
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Done • Back to Page
               </button>
             </div>
           </div>
-        ) : (
-          /* CHECKOUT FORM */
-          <form onSubmit={handlePay} className="p-6 sm:p-8 space-y-6">
-            {/* Step 1: Tier Selector */}
+        )}
+
+        {/* STEP 1: CUSTOMER DETAILS & PACKAGE */}
+        {step === 'details' && (
+          <form onSubmit={handleProceedToPayment} className="p-6 sm:p-8 space-y-6">
+            {/* Package Selector */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
-                Select Your Package:
+                1. Select Package:
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {PRICING_TIERS.map((tier) => (
@@ -229,58 +321,85 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            {/* Step 2: Customer Details */}
+            {/* Customer Contact Details (Captured into CRM for Retargeting) */}
             <div className="space-y-3">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
+                2. Contact Information:
+              </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-neutral-300 block mb-1">
-                    Your Full Name:
+                    Your Full Name: <span className="text-rose-400">*</span>
                   </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Alex Morgan"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none"
-                  />
+                  <div className="relative">
+                    <User className="w-4 h-4 text-neutral-500 absolute left-3 top-3" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Awais Ahmad"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl pl-9 pr-3 py-2.5 text-xs sm:text-sm text-white focus:outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="text-xs font-medium text-neutral-300 block mb-1">
-                    Your Email (For Instant Delivery):
+                    Email Address: <span className="text-rose-400">*</span>
                   </label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="alex@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none"
-                  />
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-neutral-500 absolute left-3 top-3" />
+                    <input
+                      type="email"
+                      required
+                      placeholder="name@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl pl-9 pr-3 py-2.5 text-xs sm:text-sm text-white focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-neutral-300 block mb-1">
-                  Your Primary Freelancing Niche:
-                </label>
-                <select
-                  value={niche}
-                  onChange={(e) => setNiche(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-neutral-300 focus:outline-none"
-                >
-                  <option value="Web & Mobile Dev">Web & Mobile Development (React, Fullstack, Mobile)</option>
-                  <option value="UI/UX & Product Design">UI/UX & Graphic Design (Figma, Branding)</option>
-                  <option value="Copywriting & Marketing">Copywriting & Content Strategy</option>
-                  <option value="Video & Motion">Video Editing & Motion Graphics</option>
-                  <option value="AI & Automation">AI Automation & Python Specialist</option>
-                  <option value="Virtual Assistance">Executive Virtual Assistance & Project Management</option>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-neutral-300 block mb-1">
+                    Phone / WhatsApp Number: <span className="text-neutral-500 text-[10px]">(For instant support/updates)</span>
+                  </label>
+                  <div className="relative">
+                    <Phone className="w-4 h-4 text-neutral-500 absolute left-3 top-3" />
+                    <input
+                      type="tel"
+                      placeholder="+92 300 1234567"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl pl-9 pr-3 py-2.5 text-xs sm:text-sm text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-neutral-300 block mb-1">
+                    Your Freelancing Niche:
+                  </label>
+                  <select
+                    value={niche}
+                    onChange={(e) => setNiche(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-neutral-300 focus:outline-none"
+                  >
+                    <option value="Web & Mobile Dev">Web & Mobile Development (React, Fullstack)</option>
+                    <option value="UI/UX & Product Design">UI/UX & Graphic Design</option>
+                    <option value="Copywriting & Marketing">Copywriting & Content Strategy</option>
+                    <option value="Video & Motion">Video Editing & Motion Graphics</option>
+                    <option value="AI & Automation">AI Automation & Python Specialist</option>
+                    <option value="Virtual Assistance">Executive Virtual Assistance</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* ORDER BUMP (Crucial for Digital Product Average Order Value) */}
+            {/* Order Bump */}
             <div className="rounded-2xl bg-neutral-950 border border-amber-500/40 p-4 relative group">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
@@ -292,120 +411,306 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
-                      ⚡ EXCLUSIVE 1-TIME OFFER: SAVE 78%
+                      ⚡ SPECIAL 1-TIME ADDON: SAVE 78%
                     </span>
                   </div>
                   <div className="text-xs sm:text-sm font-bold text-white">
                     Add The Upwork Contract Dispute & Scope Creep Protection Kit for only ${bumpPrice}
                   </div>
                   <p className="text-xs text-neutral-400 leading-relaxed">
-                    Protect your JSS and avoid free revisions. Includes the exact client milestone contract addendum, dispute response scripts, and refund mitigation protocols. (Regularly $77).
+                    Protect your JSS and eliminate unpaid scope creep. Includes escrow addendums and client dispute scripts.
                   </p>
                 </div>
               </label>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-neutral-400">
-                <span className="font-bold uppercase tracking-wider text-neutral-300">Payment Simulation</span>
-                <span className="flex items-center gap-1 text-emerald-400">
-                  <Lock className="w-3 h-3" /> Secure SSL
-                </span>
+            {/* Price Preview & Proceed Button */}
+            <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 flex items-center justify-between">
+              <div>
+                <span className="text-xs text-neutral-400">Total Investment:</span>
+                <div className="text-2xl font-black text-emerald-400 font-mono">${totalPrice}.00</div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <button
+                type="submit"
+                className="py-3 px-6 rounded-xl font-extrabold text-neutral-950 bg-emerald-400 hover:bg-emerald-300 transition-all shadow-lg shadow-emerald-500/25 flex items-center gap-2 cursor-pointer text-sm"
+              >
+                <span>Continue to Payment</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* STEP 2: CHOOSE PAYMENT METHOD & BANK DETAILS */}
+        {step === 'payment' && (
+          <form onSubmit={handleFinalizePayment} className="p-6 sm:p-8 space-y-6">
+            {/* Return / Back Button bar */}
+            <div className="flex items-center justify-between bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setStep('details')}
+                className="inline-flex items-center gap-1.5 font-bold text-emerald-400 hover:text-emerald-300 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Change Package / Details</span>
+              </button>
+              <div className="text-neutral-400">
+                Customer: <strong className="text-white">{name}</strong> ({email})
+              </div>
+            </div>
+
+            {/* Payment Method Switcher Tabs */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
+                Select Your Payment Method:
+              </label>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('bank')}
+                  className={`py-3 px-3 rounded-xl text-xs font-bold border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                    paymentMethod === 'bank'
+                      ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 ring-1 ring-emerald-400'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4" />
+                  <span>Bank Wire</span>
+                  <span className="text-[10px] font-normal text-emerald-400 bg-emerald-500/20 px-1 rounded">Direct</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('card')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`py-3 px-3 rounded-xl text-xs font-bold border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
                     paymentMethod === 'card'
-                      ? 'bg-neutral-800 border-emerald-400 text-white'
-                      : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                      ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 ring-1 ring-emerald-400'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
                   }`}
                 >
-                  <CreditCard className="w-3.5 h-3.5" />
-                  <span>Card</span>
+                  <CreditCard className="w-4 h-4" />
+                  <span>Credit Card</span>
+                  <span className="text-[10px] font-normal text-neutral-400">Instant</span>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('paypal')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`py-3 px-3 rounded-xl text-xs font-bold border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
                     paymentMethod === 'paypal'
-                      ? 'bg-neutral-800 border-emerald-400 text-white'
-                      : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                      ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 ring-1 ring-emerald-400'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
                   }`}
                 >
-                  <span>PayPal</span>
+                  <span className="font-bold">PayPal</span>
+                  <span className="text-[10px] font-normal text-neutral-400">Global</span>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('gpay')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`py-3 px-3 rounded-xl text-xs font-bold border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
                     paymentMethod === 'gpay'
-                      ? 'bg-neutral-800 border-emerald-400 text-white'
-                      : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                      ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 ring-1 ring-emerald-400'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
                   }`}
                 >
-                  <span>GPay / Apple</span>
+                  <span className="font-bold">GPay / Apple</span>
+                  <span className="text-[10px] font-normal text-neutral-400">1-Click</span>
                 </button>
               </div>
-
-              {paymentMethod === 'card' && (
-                <div className="pt-1">
-                  <input
-                    type="text"
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-300 focus:outline-none focus:border-emerald-400"
-                    placeholder="Card Number"
-                  />
-                </div>
-              )}
             </div>
 
-            {/* Total Summary */}
-            <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-2 text-xs">
-              <div className="flex justify-between text-neutral-400">
-                <span>{currentTier.name}:</span>
-                <span className="font-mono text-white">${currentTier.price}.00</span>
-              </div>
-              {includeBump && (
-                <div className="flex justify-between text-neutral-400">
-                  <span>Scope Creep Protection Kit:</span>
-                  <span className="font-mono text-amber-400">${bumpPrice}.00</span>
+            {/* BANK TRANSFER DETAILS ACCORDION/CARD */}
+            {paymentMethod === 'bank' && (
+              <div className="bg-neutral-950 border-2 border-emerald-500/40 rounded-2xl p-5 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Direct Bank Transfer Details</h4>
+                      <p className="text-[11px] text-neutral-400">Transfer funds directly to the official merchant account.</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      Amount: ${totalPrice}.00 USD
+                    </span>
+                  </div>
                 </div>
-              )}
-              <div className="border-t border-neutral-800 pt-2 flex justify-between text-sm font-bold text-white">
-                <span>Total Due Today:</span>
-                <span className="text-emerald-400 font-mono text-base">${totalPrice}.00</span>
+
+                {/* Account Details Box */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1">
+                    <span className="text-neutral-400 text-[10px] uppercase font-bold block">Bank Name</span>
+                    <div className="flex items-center justify-between text-white font-semibold">
+                      <span>{bankDetails.bankName}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(bankDetails.bankName, 'bank')}
+                        className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1">
+                    <span className="text-neutral-400 text-[10px] uppercase font-bold block">Account Title</span>
+                    <div className="flex items-center justify-between text-white font-semibold">
+                      <span>{bankDetails.accountTitle}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(bankDetails.accountTitle, 'title')}
+                        className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1">
+                    <span className="text-neutral-400 text-[10px] uppercase font-bold block">Account / IBAN Number</span>
+                    <div className="flex items-center justify-between text-white font-mono font-bold text-xs truncate">
+                      <span className="truncate mr-2">{bankDetails.iban || bankDetails.accountNumber}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(bankDetails.iban || bankDetails.accountNumber, 'iban')}
+                        className="text-emerald-400 hover:text-emerald-300 cursor-pointer shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1">
+                    <span className="text-neutral-400 text-[10px] uppercase font-bold block">SWIFT / BIC Code</span>
+                    <div className="flex items-center justify-between text-white font-mono font-semibold">
+                      <span>{bankDetails.swiftCode}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(bankDetails.swiftCode, 'swift')}
+                        className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {copiedKey && (
+                  <div className="text-center text-xs font-bold text-emerald-400 animate-fade-in">
+                    ✓ Copied {copiedKey.toUpperCase()} to clipboard!
+                  </div>
+                )}
+
+                {/* Reference Code & Transfer Confirmation Input */}
+                <div className="bg-emerald-950/30 border border-emerald-500/20 p-3.5 rounded-xl space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-neutral-300 font-medium">Your Order Reference Code (Required in transfer notes):</span>
+                    <span className="font-mono font-bold text-emerald-300 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
+                      {orderReference}
+                    </span>
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="text-neutral-300 block mb-1 text-xs">
+                      Enter Transaction ID / Reference (or write "Transferred"):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. TRX-8492018 or bank reference number"
+                      value={bankTxRef}
+                      onChange={(e) => setBankTxRef(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-400 rounded-lg px-3 py-2 text-xs text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
               </div>
+            )}
+
+            {/* CARD OPTION */}
+            {paymentMethod === 'card' && (
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-3">
+                <div className="text-xs font-bold text-white flex items-center justify-between">
+                  <span>Card Details (Encrypted):</span>
+                  <span className="text-emerald-400 flex items-center gap-1 font-normal text-[11px]">
+                    <Lock className="w-3 h-3" /> 256-Bit SSL
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={cardNumber}
+                  onChange={(e) => setCardNumber(e.target.value)}
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-300 focus:outline-none focus:border-emerald-400"
+                  placeholder="Card Number"
+                />
+              </div>
+            )}
+
+            {/* PAYPAL OR GPAY */}
+            {(paymentMethod === 'paypal' || paymentMethod === 'gpay') && (
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 text-xs text-neutral-300 text-center space-y-2">
+                <div>You will be securely redirected to {paymentMethod === 'paypal' ? 'PayPal' : 'Google/Apple Pay'} to complete your ${totalPrice} payment.</div>
+              </div>
+            )}
+
+            {/* Summary */}
+            <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 flex items-center justify-between text-xs">
+              <div>
+                <span className="text-neutral-400">{currentTier.name} {includeBump && '+ Scope Protection'}:</span>
+                <div className="text-white font-bold text-sm">${totalPrice}.00 USD</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep('details')}
+                className="text-emerald-400 hover:text-emerald-300 font-bold underline"
+              >
+                Edit Order
+              </button>
             </div>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isProcessing}
-              className="w-full py-4 rounded-xl font-extrabold text-neutral-950 bg-gradient-to-r from-emerald-400 via-emerald-300 to-emerald-400 hover:from-emerald-300 hover:to-emerald-200 transition-all shadow-xl shadow-emerald-500/25 text-base flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
-            >
-              {isProcessing ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-neutral-950 border-t-transparent rounded-full animate-spin" />
-                  <span>Securing Order & Generating Downloads...</span>
-                </span>
-              ) : (
-                <>
-                  <Zap className="w-5 h-5 fill-neutral-950" />
-                  <span>Complete Purchase & Get Instant Access (${totalPrice})</span>
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              )}
-            </button>
+            {/* Action Buttons: Return & Submit */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setStep('details')}
+                className="w-full sm:w-auto px-5 py-3.5 rounded-xl border border-neutral-800 hover:border-neutral-700 bg-neutral-950 text-neutral-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Return to Details</span>
+              </button>
 
-            {/* Footer Trust Note */}
-            <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-400 text-center">
+              <button
+                type="submit"
+                disabled={isProcessing}
+                className="w-full flex-1 py-3.5 px-6 rounded-xl font-extrabold text-neutral-950 bg-gradient-to-r from-emerald-400 via-emerald-300 to-emerald-400 hover:from-emerald-300 hover:to-emerald-200 transition-all shadow-xl shadow-emerald-500/25 text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
+              >
+                {isProcessing ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-neutral-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Processing Order...</span>
+                  </span>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 fill-neutral-950" />
+                    <span>
+                      {paymentMethod === 'bank'
+                        ? `I Have Transferred $${totalPrice} (Submit)`
+                        : `Pay $${totalPrice} & Claim Instant Access`}
+                    </span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Trust note */}
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-neutral-400 text-center">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Covered by our 30-Day 100% Money-Back Guarantee. No risk.</span>
+              <span>Backed by our 30-Day Money-Back Guarantee. Reference: {orderReference}</span>
             </div>
           </form>
         )}

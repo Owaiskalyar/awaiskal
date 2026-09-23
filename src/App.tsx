@@ -17,9 +17,11 @@ import { FaqSection } from './components/FaqSection';
 import { StickyBottomBar } from './components/StickyBottomBar';
 import { Footer } from './components/Footer';
 import { CheckoutModal } from './components/CheckoutModal';
+import { CrmDashboardModal } from './components/CrmDashboardModal';
 
 export default function App() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isCrmOpen, setIsCrmOpen] = useState(false);
   const [selectedTierId, setSelectedTierId] = useState('complete');
 
   const handleOpenCheckout = (tierId?: string) => {
@@ -31,8 +33,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-neutral-950">
-      {/* Sticky Header with countdown */}
-      <Header onOpenCheckout={handleOpenCheckout} />
+      {/* Sticky Header with countdown and CRM shortcut */}
+      <Header 
+        onOpenCheckout={handleOpenCheckout} 
+        onOpenCrm={() => setIsCrmOpen(true)} 
+      />
 
       {/* Main Landing Sections */}
       <main className="flex-1">
@@ -47,17 +52,23 @@ export default function App() {
         <FaqSection />
       </main>
 
-      {/* Footer */}
-      <Footer />
+      {/* Footer with policy & CRM links */}
+      <Footer onOpenCrm={() => setIsCrmOpen(true)} />
 
       {/* Persistent floating action bar on scroll */}
       <StickyBottomBar onOpenCheckout={handleOpenCheckout} />
 
-      {/* Conversion-optimized Checkout Modal */}
+      {/* Conversion-optimized Checkout Modal with Return Navigation & Bank Transfer */}
       <CheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         selectedTierId={selectedTierId}
+      />
+
+      {/* Merchant CRM & Retargeting Lead Vault */}
+      <CrmDashboardModal
+        isOpen={isCrmOpen}
+        onClose={() => setIsCrmOpen(false)}
       />
     </div>
   );

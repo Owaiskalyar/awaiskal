@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Mail, ExternalLink, Sparkles } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ExternalLink, Sparkles, Users } from 'lucide-react';
 
-export const Footer: React.FC = () => {
+interface FooterProps {
+  onOpenCrm: () => void;
+}
+
+export const Footer: React.FC<FooterProps> = ({ onOpenCrm }) => {
   const [modalContent, setModalContent] = useState<{ title: string; text: string } | null>(null);
 
   const openPolicy = (type: 'terms' | 'privacy' | 'refund') => {
@@ -42,8 +46,8 @@ export const Footer: React.FC = () => {
             </p>
           </div>
 
-          {/* Policy Links */}
-          <div className="flex flex-wrap items-center justify-center gap-6 text-neutral-400">
+          {/* Policy & Admin Links */}
+          <div className="flex flex-wrap items-center justify-center gap-5 text-neutral-400">
             <button
               onClick={() => openPolicy('refund')}
               className="hover:text-emerald-400 transition-colors cursor-pointer"
@@ -69,6 +73,14 @@ export const Footer: React.FC = () => {
               <Mail className="w-3.5 h-3.5" />
               <span>Contact Support</span>
             </a>
+            <button
+              onClick={onOpenCrm}
+              className="text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1 font-semibold cursor-pointer border border-emerald-500/30 px-2.5 py-1 rounded-lg bg-emerald-500/10"
+              title="Merchant CRM & Retargeting Lead Vault"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Merchant CRM</span>
+            </button>
           </div>
         </div>
 

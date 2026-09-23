@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Zap, ArrowRight, Menu, X, Sparkles } from 'lucide-react';
+import { ShieldCheck, Zap, ArrowRight, Menu, X, Users } from 'lucide-react';
 
 interface HeaderProps {
   onOpenCheckout: (tierId?: string) => void;
+  onOpenCrm: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenCheckout }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenCheckout, onOpenCrm }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState({ hours: 4, minutes: 28, seconds: 45 });
 
@@ -51,11 +52,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCheckout }) => {
           </div>
 
           <div className="hidden md:flex items-center gap-4 text-neutral-400 text-xs">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> 30-Day Money-Back Guarantee
-            </span>
+            <button
+              onClick={onOpenCrm}
+              className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-semibold bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30 transition-colors cursor-pointer"
+              title="Open Merchant CRM & Retargeting Lead Vault"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Merchant CRM & Leads</span>
+            </button>
             <span className="text-neutral-600">•</span>
-            <span className="text-emerald-400 font-medium">428 Freelancers Enrolled This Week</span>
+            <span className="flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> 30-Day Guarantee
+            </span>
           </div>
         </div>
       </div>
@@ -83,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCheckout }) => {
         </a>
 
         {/* Desktop Navigation */}
-        <nav className="hidden lg:flex items-center gap-7 text-sm font-medium text-neutral-300">
+        <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-neutral-300">
           <button onClick={() => scrollTo('breakdown')} className="hover:text-white transition-colors cursor-pointer">
             The System
           </button>
@@ -102,6 +110,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCheckout }) => {
           </button>
           <button onClick={() => scrollTo('pricing')} className="hover:text-white transition-colors cursor-pointer">
             Pricing
+          </button>
+          <button 
+            onClick={onOpenCrm} 
+            className="text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-neutral-900 border border-emerald-500/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+          >
+            <span>CRM & Leads</span>
           </button>
         </nav>
 
@@ -151,8 +165,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCheckout }) => {
             <button onClick={() => scrollTo('pricing')} className="text-left py-2 px-2 hover:bg-neutral-900 rounded">
               Pricing & Packages
             </button>
-            <button onClick={() => scrollTo('faq')} className="text-left py-2 px-2 hover:bg-neutral-900 rounded">
-              FAQ
+            <button 
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenCrm();
+              }} 
+              className="text-left py-2 px-2 bg-emerald-500/10 text-emerald-400 rounded font-semibold flex items-center justify-between"
+            >
+              <span>Merchant CRM & Retargeting Leads</span>
+              <span className="text-[10px] bg-emerald-400 text-neutral-950 font-bold px-1.5 py-0.5 rounded">Admin</span>
             </button>
           </div>
 
