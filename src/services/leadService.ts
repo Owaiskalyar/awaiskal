@@ -285,7 +285,7 @@ export const leadService = {
 
   getProductFile: async (): Promise<ProductFileInfo> => {
     try {
-      const res = await fetch('/api/product-file');
+      const res = await fetch('/api/product-file', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data && data.filename) {
@@ -311,7 +311,7 @@ export const leadService = {
 
   getAllProducts: async (): Promise<ProductFileInfo[]> => {
     try {
-      const res = await fetch('/api/products');
+      const res = await fetch('/api/products', { cache: 'no-store' });
       if (res.ok) {
         const list = await res.json();
         if (Array.isArray(list)) {
@@ -397,19 +397,42 @@ export const leadService = {
       ? `${(file.size / 1024).toFixed(1)} KB` 
       : `${sizeInMB} MB`;
 
+    // If replaceTargetId is not provided, check if the test placeholder exists in local storage
+    let targetToReplace = replaceTargetId;
+    if (!targetToReplace) {
+      try {
+        const cached = localStorage.getItem(PRODUCTS_LIST_STORAGE_KEY);
+        if (cached) {
+          const list = JSON.parse(cached);
+          if (Array.isArray(list)) {
+            const testProd = list.find((p: ProductFileInfo) =>
+              p.id === 'prod_master_pdf' ||
+              p.filename === 'active-product.pdf' ||
+              p.originalName.toLowerCase().includes('acquisition-master')
+            );
+            if (testProd && testProd.id) {
+              targetToReplace = testProd.id;
+            }
+          }
+        }
+      } catch {}
+    }
+
     // 1. Immediately guarantee local storage in IndexedDB vault
     await saveProductToVault(file, file.name, fileId);
 
-    // If replacing an existing product, clean up its old key in IndexedDB
-    if (replaceTargetId) {
-      try {
-        const db = await openIndexedDb();
-        const tx = db.transaction(IDB_STORE, 'readwrite');
-        const store = tx.objectStore(IDB_STORE);
-        store.delete(`file_${replaceTargetId}`);
-        store.delete(`name_${replaceTargetId}`);
-      } catch {}
-    }
+    // Clean up replaced target key and default test keys in IndexedDB
+    try {
+      const db = await openIndexedDb();
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      if (targetToReplace) {
+        store.delete(`file_${targetToReplace}`);
+        store.delete(`name_${targetToReplace}`);
+      }
+      store.delete('file_prod_master_pdf');
+      store.delete('name_prod_master_pdf');
+    } catch {}
 
     const fallbackMeta: ProductFileInfo = {
       id: fileId,
@@ -431,8 +454,8 @@ export const leadService = {
         'x-file-id': encodeURIComponent(fileId),
         'x-filetype': encodeURIComponent(file.type || 'application/octet-stream')
       };
-      if (replaceTargetId) {
-        headers['x-replace-target-id'] = encodeURIComponent(replaceTargetId);
+      if (targetToReplace) {
+        headers['x-replace-target-id'] = encodeURIComponent(targetToReplace);
       }
 
       const rawRes = await fetch('/api/upload-product-raw', {
@@ -474,7 +497,7 @@ export const leadService = {
             originalName: file.name,
             fileSize: fileSizeFormatted,
             fileType: file.type,
-            replaceTargetId,
+            replaceTargetId: targetToReplace,
             base64Data
           })
         });
@@ -497,16 +520,16 @@ export const leadService = {
     // 4. Update local storage list with fallback item
     const currentList = await leadService.getAllProducts();
     let updated: ProductFileInfo[];
-    if (replaceTargetId) {
-      const idx = currentList.findIndex(p => p.id === replaceTargetId);
+    if (targetToReplace) {
+      const idx = currentList.findIndex(p => p.id === targetToReplace);
       if (idx >= 0) {
         updated = [...currentList];
         updated[idx] = fallbackMeta;
       } else {
-        updated = [fallbackMeta, ...currentList];
+        updated = [fallbackMeta, ...currentList.filter(p => p.id !== 'prod_master_pdf' && !p.originalName.toLowerCase().includes('acquisition-master'))];
       }
     } else {
-      updated = [fallbackMeta, ...currentList.filter(p => p.originalName !== file.name)];
+      updated = [fallbackMeta, ...currentList.filter(p => p.originalName !== file.name && p.id !== 'prod_master_pdf')];
     }
 
     localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(updated));

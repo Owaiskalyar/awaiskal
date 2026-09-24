@@ -122,7 +122,13 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   const handleFilesBatch = async (filesList: File[]) => {
     if (!filesList || filesList.length === 0) return;
 
-    const previousReplaceTarget = replacingFileId;
+    // Detect if test placeholder is in the current products list
+    const testProduct = productsList.find(p => 
+      p.id === 'prod_master_pdf' || 
+      p.originalName.toLowerCase().includes('acquisition-master') || 
+      p.filename === 'active-product.pdf'
+    );
+    const targetToReplace = replacingFileId || replaceTargetIdRef.current || testProduct?.id;
 
     try {
       setIsUploading(true);
@@ -130,14 +136,34 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
       setUploadSuccessMessage(null);
       setUploadProgress({ current: 0, total: filesList.length, currentFileName: filesList[0].name });
 
-      const result = await leadService.uploadMultipleFiles(filesList, (curr, total, name) => {
-        setUploadProgress({ current: curr, total, currentFileName: name });
-      });
+      // If replacing a target (e.g. test product), use replaceProductFile for the first file
+      let successfulList: ProductFileInfo[] = [];
+      let failedList: { name: string; error: string }[] = [];
 
-      // If replacing a specific target file (e.g. replacing test file with a new file)
-      if (previousReplaceTarget && result.successful.length > 0) {
-        await leadService.deleteProduct(previousReplaceTarget);
-        setReplacingFileId(null);
+      if (targetToReplace && filesList.length > 0) {
+        setUploadProgress({ current: 0, total: filesList.length, currentFileName: filesList[0].name });
+        try {
+          const res = await leadService.replaceProductFile(targetToReplace, filesList[0]);
+          successfulList.push(res.product);
+        } catch (err: unknown) {
+          failedList.push({ name: filesList[0].name, error: err instanceof Error ? err.message : 'Replace failed' });
+        }
+
+        // If more files in batch, upload remaining
+        if (filesList.length > 1) {
+          const remainingFiles = filesList.slice(1);
+          const rest = await leadService.uploadMultipleFiles(remainingFiles, (curr, total, name) => {
+            setUploadProgress({ current: curr + 1, total: filesList.length, currentFileName: name });
+          });
+          successfulList.push(...rest.successful);
+          failedList.push(...rest.failed);
+        }
+      } else {
+        const result = await leadService.uploadMultipleFiles(filesList, (curr, total, name) => {
+          setUploadProgress({ current: curr, total, currentFileName: name });
+        });
+        successfulList = result.successful;
+        failedList = result.failed;
       }
 
       const refreshed = await leadService.getAllProducts();
@@ -146,18 +172,18 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
         setProductInfo(refreshed[0]);
       }
 
-      if (result.successful.length > 0) {
-        const msg = previousReplaceTarget
-          ? `File replaced with "${result.successful[0].originalName}"! New file is live and ready for testing.`
+      if (successfulList.length > 0) {
+        const msg = targetToReplace
+          ? `✓ Successfully replaced test product with "${successfulList[0].originalName}"! New file is live and ready for testing.`
           : filesList.length === 1 
-            ? `File "${result.successful[0].originalName}" (${result.successful[0].fileSize}) successfully uploaded and ready for testing!`
-            : `All ${result.successful.length} file(s) successfully uploaded and live for your buyers!`;
+            ? `File "${successfulList[0].originalName}" (${successfulList[0].fileSize}) successfully uploaded and ready for testing!`
+            : `All ${successfulList.length} file(s) successfully uploaded and live for your buyers!`;
         setUploadSuccessMessage(msg);
         setTimeout(() => setUploadSuccessMessage(null), 6000);
       }
 
-      if (result.failed.length > 0) {
-        setUploadError(`Failed to upload ${result.failed.length} file(s): ${result.failed.map(f => f.name).join(', ')}`);
+      if (failedList.length > 0) {
+        setUploadError(`Failed to upload ${failedList.length} file(s): ${failedList.map(f => f.name).join(', ')}`);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
@@ -166,6 +192,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
       setIsUploading(false);
       setUploadProgress(null);
       setReplacingFileId(null);
+      replaceTargetIdRef.current = null;
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -188,7 +215,9 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
 
   const handleReplaceFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    const targetId = replaceTargetIdRef.current;
+    const testFallback = productsList.find(p => p.id === 'prod_master_pdf' || p.originalName.toLowerCase().includes('acquisition-master'));
+    const targetId = replaceTargetIdRef.current || replacingFileId || testFallback?.id || (productsList.length > 0 ? productsList[0].id : 'prod_master_pdf');
+
     if (!file || !targetId) {
       setReplacingFileId(null);
       replaceTargetIdRef.current = null;
@@ -208,7 +237,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
         setProductInfo(refreshed[0]);
       }
 
-      setUploadSuccessMessage(`Successfully replaced file with "${file.name}" (${result.product.fileSize})! Live and ready to test download.`);
+      setUploadSuccessMessage(`✓ Successfully replaced file with "${file.name}" (${result.product.fileSize})! Live and ready to test download.`);
       setTimeout(() => setUploadSuccessMessage(null), 6000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to replace product file';
@@ -565,6 +594,32 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                 </span>
               </div>
 
+              {/* Informative banner if sample test product is present */}
+              {productsList.some(p => p.id === 'prod_master_pdf' || p.originalName.toLowerCase().includes('acquisition-master')) && (
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-xs shrink-0">
+                      ⚡
+                    </div>
+                    <div>
+                      <span className="font-bold text-white block">Sample Test Product is currently active</span>
+                      <span className="text-neutral-400 text-[11px]">Uploading your product will automatically replace this test placeholder with your live file.</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const testProd = productsList.find(p => p.id === 'prod_master_pdf' || p.originalName.toLowerCase().includes('acquisition-master'));
+                      handleStartReplace(testProd ? testProd.id! : 'prod_master_pdf');
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Replace Test File Now</span>
+                  </button>
+                </div>
+              )}
+
               {productsList.length === 0 ? (
                 <div className="p-8 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-4">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
@@ -688,11 +743,15 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                                   type="button"
                                   disabled={isUploading || deletingId === file.id}
                                   onClick={() => handleStartReplace(file.id!)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800 disabled:opacity-50"
-                                  title="Upload a different file to replace this file"
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                                    isTestProduct
+                                      ? 'bg-amber-400 hover:bg-amber-300 text-neutral-950 shadow-md shadow-amber-500/20'
+                                      : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800'
+                                  }`}
+                                  title={isTestProduct ? "Upload your file to replace this test placeholder" : "Upload a different file to replace this file"}
                                 >
-                                  <RefreshCw className={`w-3.5 h-3.5 text-neutral-400 ${replacingFileId === file.id ? 'animate-spin text-emerald-400' : ''}`} />
-                                  <span className="hidden sm:inline">{replacingFileId === file.id ? 'Replacing...' : 'Replace'}</span>
+                                  <RefreshCw className={`w-3.5 h-3.5 ${isTestProduct ? 'text-neutral-950' : 'text-neutral-400'} ${replacingFileId === file.id ? 'animate-spin' : ''}`} />
+                                  <span>{replacingFileId === file.id ? 'Replacing...' : isTestProduct ? 'Replace Test File' : 'Replace'}</span>
                                 </button>
 
                                 {/* Delete file button - ALWAYS accessible, even if only 1 file / test file */}

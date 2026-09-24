@@ -254,8 +254,14 @@ function saveProductBuffer(
     downloadUrl: `/api/download-product?id=${id}`
   };
 
-  // Update products list (handling replacement if replaceTargetId is provided)
+  // Update products list (handling replacement if replaceTargetId is provided or if test product is present)
   let currentProducts = getAllStoredProducts();
+
+  // Helper to check if a product is the placeholder sample test product
+  const isTestPlaceholder = (p: ProductMeta) => 
+    p.id === 'prod_master_pdf' || 
+    p.filename === 'active-product.pdf' || 
+    p.originalName.toLowerCase().includes('acquisition-master');
 
   if (replaceTargetId) {
     const targetIdx = currentProducts.findIndex(p => p.id === replaceTargetId);
@@ -277,19 +283,44 @@ function saveProductBuffer(
       }
       currentProducts[targetIdx] = productMeta;
     } else {
-      // If replacing target wasn't found by id, replace the first item or unshift
-      if (currentProducts.length > 0) {
+      // If target not found by id, check if test placeholder exists to replace
+      const testIdx = currentProducts.findIndex(isTestPlaceholder);
+      if (testIdx >= 0) {
+        currentProducts[testIdx] = productMeta;
+      } else if (currentProducts.length > 0) {
         currentProducts[0] = productMeta;
       } else {
         currentProducts = [productMeta];
       }
     }
   } else {
-    const existingIndex = currentProducts.findIndex(p => p.id === id || p.originalName === originalName);
-    if (existingIndex >= 0) {
-      currentProducts[existingIndex] = productMeta;
+    // If no explicit replaceTargetId was provided, check if the placeholder test product is currently in the list
+    const testIdx = currentProducts.findIndex(isTestPlaceholder);
+    if (testIdx >= 0) {
+      // Automatically replace the sample test product with the user's uploaded product!
+      const oldProd = currentProducts[testIdx];
+      if (oldProd && oldProd.filename && oldProd.filename !== diskFilename) {
+        const oldPaths = [
+          path.join(PUBLIC_DOWNLOADS_DIR, oldProd.filename),
+          path.resolve(process.cwd(), "dist", "downloads", oldProd.filename),
+          path.join(TMP_PRODUCT_DIR, oldProd.filename),
+          path.join(os.tmpdir(), oldProd.filename)
+        ];
+        for (const op of oldPaths) {
+          try {
+            if (fs.existsSync(op)) fs.unlinkSync(op);
+          } catch {}
+        }
+      }
+      currentProducts[testIdx] = productMeta;
     } else {
-      currentProducts.push(productMeta);
+      const existingIndex = currentProducts.findIndex(p => p.id === id || p.originalName === originalName);
+      if (existingIndex >= 0) {
+        currentProducts[existingIndex] = productMeta;
+      } else {
+        // Place new product at the beginning as active product
+        currentProducts.unshift(productMeta);
+      }
     }
   }
 

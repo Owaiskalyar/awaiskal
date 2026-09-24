@@ -233,9 +233,17 @@ export const CurriculumOverview: React.FC<CurriculumOverviewProps> = ({ onOpenCh
                 }`}
               >
                 {/* Header */}
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => toggleModule(module.id)}
-                  className="w-full text-left p-5 sm:p-6 flex items-center justify-between gap-4 cursor-pointer focus:outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleModule(module.id);
+                    }
+                  }}
+                  className="w-full text-left p-5 sm:p-6 flex items-center justify-between gap-4 cursor-pointer focus:outline-none select-none"
                 >
                   <div className="flex items-center gap-4">
                     <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl border flex items-center justify-center font-mono font-black text-sm sm:text-base shrink-0 transition-colors ${
@@ -291,7 +299,7 @@ export const CurriculumOverview: React.FC<CurriculumOverviewProps> = ({ onOpenCh
                       {isExpanded ? <ChevronUp className="w-5 h-5 text-emerald-400" /> : <ChevronDown className="w-5 h-5 text-neutral-400" />}
                     </div>
                   </div>
-                </button>
+                </div>
 
                 {/* Expanded Content */}
                 {isExpanded && (
