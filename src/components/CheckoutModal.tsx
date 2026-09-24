@@ -311,36 +311,68 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               )}
 
               {/* Render each product file in the vault */}
-              {(productsList.length > 0 ? productsList : [productInfo]).map((prod, idx) => {
-                const ext = (prod.originalName.split('.').pop() || 'PDF').toUpperCase();
-                return (
-                  <div key={prod.id || `prod-${idx}`} className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-emerald-500/40 transition-colors flex items-center justify-between">
-                    <div className="flex items-center gap-3 truncate mr-2">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex flex-col items-center justify-center font-bold text-xs shrink-0">
-                        <FileText className="w-4 h-4" />
-                        <span className="text-[8px] font-mono mt-0.5">{ext.slice(0, 4)}</span>
+              {productsList.length > 0 ? (
+                productsList.map((prod, idx) => {
+                  const ext = (prod.originalName.split('.').pop() || 'PDF').toUpperCase();
+                  return (
+                    <div key={prod.id || `prod-${idx}`} className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-emerald-500/40 transition-colors flex items-center justify-between">
+                      <div className="flex items-center gap-3 truncate mr-2">
+                        <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex flex-col items-center justify-center font-bold text-xs shrink-0">
+                          <FileText className="w-4 h-4" />
+                          <span className="text-[8px] font-mono mt-0.5">{ext.slice(0, 4)}</span>
+                        </div>
+                        <div className="truncate">
+                          <div className="text-xs font-bold text-white truncate" title={prod.originalName}>
+                            {prod.originalName || "Upwork-Client-Acquisition-Master-System.pdf"}
+                          </div>
+                          <div className="text-[10px] text-neutral-400">
+                            {ext} • {prod.fileSize || "14.2 MB"} • Included
+                          </div>
+                        </div>
                       </div>
-                      <div className="truncate">
-                        <div className="text-xs font-bold text-white truncate" title={prod.originalName}>
-                          {prod.originalName || "Upwork-Client-Acquisition-Master-System.pdf"}
-                        </div>
-                        <div className="text-[10px] text-neutral-400">
-                          {ext} • {prod.fileSize || "14.2 MB"} • Included
-                        </div>
+
+                      <button
+                        type="button"
+                        onClick={() => leadService.triggerProductDownload(prod.downloadUrl, prod.originalName, prod.id)}
+                        className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 border border-emerald-500/30 cursor-pointer"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Download</span>
+                      </button>
+                    </div>
+                  );
+                })
+              ) : productInfo.originalName ? (
+                <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-emerald-500/40 transition-colors flex items-center justify-between">
+                  <div className="flex items-center gap-3 truncate mr-2">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex flex-col items-center justify-center font-bold text-xs shrink-0">
+                      <FileText className="w-4 h-4" />
+                      <span className="text-[8px] font-mono mt-0.5">PDF</span>
+                    </div>
+                    <div className="truncate">
+                      <div className="text-xs font-bold text-white truncate" title={productInfo.originalName}>
+                        {productInfo.originalName}
+                      </div>
+                      <div className="text-[10px] text-neutral-400">
+                        {productInfo.fileSize || "14.2 MB"} • Included
                       </div>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={() => leadService.triggerProductDownload(prod.downloadUrl, prod.originalName, prod.id)}
-                      className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 border border-emerald-500/30 cursor-pointer"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>Download</span>
-                    </button>
                   </div>
-                );
-              })}
+
+                  <button
+                    type="button"
+                    onClick={() => leadService.triggerProductDownload(productInfo.downloadUrl, productInfo.originalName, productInfo.id)}
+                    className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 border border-emerald-500/30 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-400 text-xs text-center">
+                  Digital product files have been dispatched to your email address.
+                </div>
+              )}
 
               {/* Notion Workspace */}
               <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">

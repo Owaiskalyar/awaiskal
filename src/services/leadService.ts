@@ -314,7 +314,7 @@ export const leadService = {
       const res = await fetch('/api/products');
       if (res.ok) {
         const list = await res.json();
-        if (Array.isArray(list) && list.length > 0) {
+        if (Array.isArray(list)) {
           localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(list));
           return list;
         }
@@ -324,10 +324,10 @@ export const leadService = {
     }
 
     const local = localStorage.getItem(PRODUCTS_LIST_STORAGE_KEY);
-    if (local) {
+    if (local !== null) {
       try {
         const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {
         // pass
       }
@@ -518,6 +518,20 @@ export const leadService = {
 
   // Delete product file
   deleteProduct: async (id: string): Promise<ProductFileInfo[]> => {
+    // 1. Remove from local IndexedDB vault if stored
+    try {
+      const db = await openIndexedDb();
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      store.delete(`file_${id}`);
+      store.delete(`name_${id}`);
+      await new Promise((resolve) => {
+        tx.oncomplete = resolve;
+        tx.onerror = resolve;
+      });
+    } catch {}
+
+    // 2. Delete on server
     try {
       const res = await fetch(`/api/products/${encodeURIComponent(id)}`, {
         method: 'DELETE'
@@ -526,6 +540,11 @@ export const leadService = {
         const data = await res.json();
         if (Array.isArray(data.allProducts)) {
           localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(data.allProducts));
+          if (data.allProducts.length > 0) {
+            localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(data.allProducts[0]));
+          } else {
+            localStorage.removeItem(PRODUCT_STORAGE_KEY);
+          }
           return data.allProducts;
         }
       }
@@ -536,6 +555,33 @@ export const leadService = {
     const current = await leadService.getAllProducts();
     const remaining = current.filter(p => p.id !== id);
     localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(remaining));
+    if (remaining.length > 0) {
+      localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(remaining[0]));
+    } else {
+      localStorage.removeItem(PRODUCT_STORAGE_KEY);
+    }
     return remaining;
+  },
+
+  // Reset or re-add default test product
+  resetDefaultProduct: async (): Promise<ProductFileInfo[]> => {
+    try {
+      const res = await fetch('/api/products/reset-default', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.allProducts)) {
+          localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(data.allProducts));
+          if (data.allProducts.length > 0) {
+            localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(data.allProducts[0]));
+          }
+          return data.allProducts;
+        }
+      }
+    } catch {}
+
+    const list = [DEFAULT_PRODUCT_FILE];
+    localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(list));
+    localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(DEFAULT_PRODUCT_FILE));
+    return list;
   }
 };

@@ -24,7 +24,9 @@ import {
   FolderArchive,
   Layers,
   FileArchive,
-  Check
+  Check,
+  RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 import { Lead, BankAccountDetails, LeadStatus, ProductFileInfo } from '../types/crm';
 import { leadService } from '../services/leadService';
@@ -58,6 +60,8 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [replacingFileId, setReplacingFileId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -87,6 +91,15 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     setProductsList(allProducts);
     if (allProducts.length > 0) {
       setProductInfo(allProducts[0]);
+    } else {
+      setProductInfo({
+        id: '',
+        filename: '',
+        originalName: '',
+        fileSize: '0 MB',
+        uploadedAt: '',
+        downloadUrl: ''
+      });
     }
   };
 
@@ -107,6 +120,8 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   const handleFilesBatch = async (filesList: File[]) => {
     if (!filesList || filesList.length === 0) return;
 
+    const previousReplaceTarget = replacingFileId;
+
     try {
       setIsUploading(true);
       setUploadError(null);
@@ -117,6 +132,12 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
         setUploadProgress({ current: curr, total, currentFileName: name });
       });
 
+      // If replacing a specific target file (e.g. replacing test file with a new file)
+      if (previousReplaceTarget && result.successful.length > 0) {
+        await leadService.deleteProduct(previousReplaceTarget);
+        setReplacingFileId(null);
+      }
+
       const refreshed = await leadService.getAllProducts();
       setProductsList(refreshed);
       if (refreshed.length > 0) {
@@ -124,9 +145,11 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
       }
 
       if (result.successful.length > 0) {
-        const msg = filesList.length === 1 
-          ? `File "${result.successful[0].originalName}" (${result.successful[0].fileSize}) successfully uploaded!`
-          : `All ${result.successful.length} file(s) successfully uploaded and live for your buyers!`;
+        const msg = previousReplaceTarget
+          ? `File replaced with "${result.successful[0].originalName}"! New file is live and ready for testing.`
+          : filesList.length === 1 
+            ? `File "${result.successful[0].originalName}" (${result.successful[0].fileSize}) successfully uploaded and ready for testing!`
+            : `All ${result.successful.length} file(s) successfully uploaded and live for your buyers!`;
         setUploadSuccessMessage(msg);
         setTimeout(() => setUploadSuccessMessage(null), 6000);
       }
@@ -140,6 +163,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     } finally {
       setIsUploading(false);
       setUploadProgress(null);
+      setReplacingFileId(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -151,21 +175,58 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     handleFilesBatch(files);
   };
 
+  const handleStartReplace = (fileId: string) => {
+    setReplacingFileId(fileId);
+    fileInputRef.current?.click();
+  };
+
   const handleDeleteProduct = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to remove "${name}" from your product files?`)) {
-      return;
-    }
     try {
       setDeletingId(id);
+      setPendingDeleteId(null);
       const remaining = await leadService.deleteProduct(id);
       setProductsList(remaining);
       if (remaining.length > 0) {
         setProductInfo(remaining[0]);
+      } else {
+        setProductInfo({
+          id: '',
+          filename: '',
+          originalName: '',
+          fileSize: '0 MB',
+          uploadedAt: '',
+          downloadUrl: ''
+        });
       }
+      const isTest = id === 'prod_master_pdf' || name.toLowerCase().includes('acquisition-master');
+      setUploadSuccessMessage(
+        isTest 
+          ? `Test product "${name}" deleted successfully. You can now upload a different file for testing.`
+          : `"${name}" removed from product files.`
+      );
+      setTimeout(() => setUploadSuccessMessage(null), 5000);
     } catch {
       setUploadError(`Could not delete "${name}"`);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleRestoreDefault = async () => {
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+      const restored = await leadService.resetDefaultProduct();
+      setProductsList(restored);
+      if (restored.length > 0) {
+        setProductInfo(restored[0]);
+      }
+      setUploadSuccessMessage('Default sample test product restored successfully.');
+      setTimeout(() => setUploadSuccessMessage(null), 4000);
+    } catch {
+      setUploadError('Failed to restore default product');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -370,14 +431,14 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <FileUp className="w-4 h-4 text-emerald-400" />
-                  <span>Your Digital Product Files & Bundle</span>
+                  <span>Digital Product Files & Test Product</span>
                 </h3>
                 <p className="text-xs text-neutral-400">
-                  Upload all your PDF guides, workbooks, swipe files, and bonuses. Customers get instant download access to all uploaded files upon purchase.
+                  Upload, test, replace, or delete your product files. Delete the test product to upload a different test file or your own guides.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -397,6 +458,18 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                   >
                     <Download className="w-3.5 h-3.5 text-emerald-400" />
                     <span>{isDownloadingAll ? 'Downloading...' : 'Test All'}</span>
+                  </button>
+                )}
+
+                {(!productsList.some(p => p.id === 'prod_master_pdf' || p.originalName.toLowerCase().includes('acquisition-master')) || productsList.length === 0) && (
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefault}
+                    className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
+                    title="Restore default sample test product"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Restore Sample File</span>
                   </button>
                 )}
               </div>
@@ -449,63 +522,150 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               </div>
 
               {productsList.length === 0 ? (
-                <div className="p-6 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-2">
-                  <p className="text-xs text-neutral-400">No product files uploaded yet.</p>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-emerald-400 hover:underline font-bold"
-                  >
-                    Click here to upload your first file
-                  </button>
+                <div className="p-8 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+                    <FileUp className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1 max-w-md mx-auto">
+                    <h4 className="text-sm font-bold text-white">Test Product Removed</h4>
+                    <p className="text-xs text-neutral-400">
+                      No files currently uploaded. You can now upload a different file to use as your test file or product package for your buyers.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-4 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Upload Different File</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRestoreDefault}
+                      className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>Restore Default Test Product</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2.5">
                   {productsList.map((file, idx) => {
                     const ext = (file.originalName.split('.').pop() || 'PDF').toUpperCase();
+                    const isTestProduct = file.id === 'prod_master_pdf' || file.originalName.toLowerCase().includes('acquisition-master');
+                    const isConfirmingDelete = pendingDeleteId === file.id;
+
                     return (
                       <div 
                         key={file.id || `file-${idx}`}
-                        className="p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-all flex items-center justify-between gap-3"
+                        className={`p-3.5 sm:p-4 rounded-2xl bg-neutral-950 border transition-all ${
+                          isConfirmingDelete 
+                            ? 'border-rose-500/60 bg-rose-950/20' 
+                            : isTestProduct 
+                              ? 'border-amber-500/30 hover:border-amber-500/50' 
+                              : 'border-neutral-800 hover:border-neutral-700'
+                        }`}
                       >
-                        <div className="flex items-center gap-3 truncate min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-800 text-emerald-400 flex flex-col items-center justify-center shrink-0">
-                            <FileText className="w-4 h-4" />
-                            <span className="text-[9px] font-black font-mono mt-0.5">{ext.slice(0, 4)}</span>
-                          </div>
-                          <div className="truncate">
-                            <div className="text-xs font-bold text-white truncate" title={file.originalName}>
-                              {file.originalName}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 truncate min-w-0">
+                            <div className={`w-10 h-10 rounded-xl border flex flex-col items-center justify-center shrink-0 ${
+                              isTestProduct 
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' 
+                                : 'bg-neutral-900 border-neutral-800 text-emerald-400'
+                            }`}>
+                              <FileText className="w-4 h-4" />
+                              <span className="text-[9px] font-black font-mono mt-0.5">{ext.slice(0, 4)}</span>
                             </div>
-                            <div className="text-[10px] text-neutral-400 flex items-center gap-2 mt-0.5">
-                              <span>Size: {file.fileSize}</span>
-                              <span>•</span>
-                              <span>Uploaded: {new Date(file.uploadedAt).toLocaleDateString()}</span>
+                            <div className="truncate">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white truncate" title={file.originalName}>
+                                  {file.originalName}
+                                </span>
+                                {isTestProduct && (
+                                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">
+                                    🧪 Test Product
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-neutral-400 flex items-center gap-2 mt-0.5">
+                                <span>Size: {file.fileSize}</span>
+                                <span>•</span>
+                                <span>Uploaded: {file.uploadedAt ? new Date(file.uploadedAt).toLocaleDateString() : 'Active'}</span>
+                                {isTestProduct && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-amber-400/80">Can be deleted to upload a different file</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => leadService.triggerProductDownload(file.downloadUrl, file.originalName, file.id)}
-                            className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
-                            title="Test download what your buyers receive"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Test</span>
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                            {isConfirmingDelete ? (
+                              <div className="flex items-center gap-1.5 bg-neutral-900 border border-rose-500/50 p-1.5 rounded-xl animate-fade-in">
+                                <span className="text-xs text-rose-300 font-bold px-2">
+                                  {isTestProduct ? 'Delete test product?' : 'Delete this file?'}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={deletingId === file.id}
+                                  onClick={() => handleDeleteProduct(file.id!, file.originalName)}
+                                  className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {deletingId === file.id ? 'Deleting...' : 'Yes, Delete'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingDeleteId(null)}
+                                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Test Download */}
+                                <button
+                                  type="button"
+                                  onClick={() => leadService.triggerProductDownload(file.downloadUrl, file.originalName, file.id)}
+                                  className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
+                                  title="Test download what your buyers receive"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>Test</span>
+                                </button>
 
-                          {productsList.length > 1 && file.id && (
-                            <button
-                              type="button"
-                              disabled={deletingId === file.id}
-                              onClick={() => handleDeleteProduct(file.id!, file.originalName)}
-                              className="p-1.5 rounded-lg bg-neutral-900 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer border border-neutral-800 hover:border-rose-900"
-                              title="Remove file from bundle"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                                {/* Replace file with a different file */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartReplace(file.id!)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
+                                  title="Upload a different file to replace this file"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5 text-neutral-400" />
+                                  <span className="hidden sm:inline">Replace</span>
+                                </button>
+
+                                {/* Delete file button - ALWAYS accessible, even if only 1 file / test file */}
+                                {file.id && (
+                                  <button
+                                    type="button"
+                                    disabled={deletingId === file.id}
+                                    onClick={() => setPendingDeleteId(file.id!)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer border border-neutral-800 hover:border-rose-900/60 flex items-center gap-1.5"
+                                    title={isTestProduct ? "Delete test product so you can upload a different file" : "Delete file"}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                    <span className="text-xs font-semibold text-rose-400/90 hidden sm:inline">Delete</span>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

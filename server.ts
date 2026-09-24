@@ -146,7 +146,8 @@ function getAllStoredProducts(): ProductMeta[] {
       if (fs.existsSync(lp)) {
         const raw = fs.readFileSync(lp, "utf-8");
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
+          // Explicit list file exists: honor exact contents (even if 0 items after deleting test product)
           return parsed.map((item, idx) => ({
             ...item,
             id: item.id || `prod_${idx}_${Date.now()}`,
@@ -323,6 +324,25 @@ function deleteStoredProduct(id: string): ProductMeta[] {
     } catch {}
   }
 
+  // Also synchronize legacy single-file product.json
+  const metaPaths = [
+    PRODUCT_FILE,
+    TMP_PRODUCT_FILE,
+    path.resolve(process.cwd(), "dist", "product.json")
+  ];
+  for (const mp of metaPaths) {
+    try {
+      const dir = path.dirname(mp);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      if (remaining.length > 0) {
+        fs.writeFileSync(mp, JSON.stringify(remaining[0], null, 2));
+      } else {
+        // If all files deleted, empty legacy meta file so it doesn't resurrect default product
+        fs.writeFileSync(mp, JSON.stringify({}, null, 2));
+      }
+    } catch {}
+  }
+
   return remaining;
 }
 
@@ -420,15 +440,19 @@ async function startServer() {
   // Product File Metadata API (Backward compatible)
   app.get("/api/product-file", (_req, res) => {
     const all = getAllStoredProducts();
-    const primary = all[0] || {
-      id: "prod_master_pdf",
-      filename: "active-product.pdf",
-      originalName: "Upwork-Client-Acquisition-Master-System.pdf",
-      fileSize: "14.2 MB",
-      uploadedAt: new Date().toISOString(),
-      downloadUrl: "/api/download-product?id=prod_master_pdf"
-    };
-    res.json({ ...primary, allProducts: all });
+    if (all.length > 0) {
+      res.json({ ...all[0], allProducts: all });
+    } else {
+      res.json({
+        id: "",
+        filename: "",
+        originalName: "No file uploaded",
+        fileSize: "0 MB",
+        uploadedAt: "",
+        downloadUrl: "",
+        allProducts: []
+      });
+    }
   });
 
   // Delete product file
@@ -440,6 +464,53 @@ async function startServer() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Error deleting file";
       res.status(500).json({ error: "Failed to delete product file", details: message });
+    }
+  });
+
+  // Restore/Reset to default test product
+  app.post("/api/products/reset-default", (_req, res) => {
+    try {
+      const defaultProduct: ProductMeta = {
+        id: "prod_master_pdf",
+        filename: "active-product.pdf",
+        originalName: "Upwork-Client-Acquisition-Master-System.pdf",
+        fileSize: "14.2 MB",
+        fileSizeBytes: 14889779,
+        fileType: "application/pdf",
+        uploadedAt: new Date().toISOString(),
+        downloadUrl: "/api/download-product?id=prod_master_pdf"
+      };
+
+      const listPaths = [
+        PRODUCTS_LIST_FILE,
+        TMP_PRODUCTS_LIST_FILE,
+        path.resolve(process.cwd(), "dist", "products_list.json")
+      ];
+      for (const lp of listPaths) {
+        try {
+          const dir = path.dirname(lp);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(lp, JSON.stringify([defaultProduct], null, 2));
+        } catch {}
+      }
+
+      const metaPaths = [
+        PRODUCT_FILE,
+        TMP_PRODUCT_FILE,
+        path.resolve(process.cwd(), "dist", "product.json")
+      ];
+      for (const mp of metaPaths) {
+        try {
+          const dir = path.dirname(mp);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(mp, JSON.stringify(defaultProduct, null, 2));
+        } catch {}
+      }
+
+      res.json({ success: true, product: defaultProduct, allProducts: [defaultProduct] });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error restoring default";
+      res.status(500).json({ error: "Failed to reset default product", details: message });
     }
   });
 
