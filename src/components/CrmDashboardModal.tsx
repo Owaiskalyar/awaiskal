@@ -18,7 +18,13 @@ import {
   FileUp,
   FileText,
   AlertCircle,
-  UploadCloud
+  UploadCloud,
+  Trash2,
+  Plus,
+  FolderArchive,
+  Layers,
+  FileArchive,
+  Check
 } from 'lucide-react';
 import { Lead, BankAccountDetails, LeadStatus, ProductFileInfo } from '../types/crm';
 import { leadService } from '../services/leadService';
@@ -46,9 +52,13 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     uploadedAt: new Date().toISOString(),
     downloadUrl: '/api/download-product'
   });
+  const [productsList, setProductsList] = useState<ProductFileInfo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; currentFileName: string } | null>(null);
+  const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -73,8 +83,11 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     setLeads(loadedLeads);
     const loadedBank = await leadService.getBankDetails();
     setBankDetails(loadedBank);
-    const loadedProduct = await leadService.getProductFile();
-    setProductInfo(loadedProduct);
+    const allProducts = await leadService.getAllProducts();
+    setProductsList(allProducts);
+    if (allProducts.length > 0) {
+      setProductInfo(allProducts[0]);
+    }
   };
 
   if (!isOpen) return null;
@@ -91,27 +104,77 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     setTimeout(() => setBankSavedMessage(false), 3000);
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFilesBatch = async (filesList: File[]) => {
+    if (!filesList || filesList.length === 0) return;
 
     try {
       setIsUploading(true);
       setUploadError(null);
-      setUploadSuccess(false);
+      setUploadSuccessMessage(null);
+      setUploadProgress({ current: 0, total: filesList.length, currentFileName: filesList[0].name });
 
-      const uploaded = await leadService.uploadProductFile(file);
-      setProductInfo(uploaded);
-      setUploadSuccess(true);
-      setTimeout(() => setUploadSuccess(false), 5000);
+      const result = await leadService.uploadMultipleFiles(filesList, (curr, total, name) => {
+        setUploadProgress({ current: curr, total, currentFileName: name });
+      });
+
+      const refreshed = await leadService.getAllProducts();
+      setProductsList(refreshed);
+      if (refreshed.length > 0) {
+        setProductInfo(refreshed[0]);
+      }
+
+      if (result.successful.length > 0) {
+        const msg = filesList.length === 1 
+          ? `File "${result.successful[0].originalName}" (${result.successful[0].fileSize}) successfully uploaded!`
+          : `All ${result.successful.length} file(s) successfully uploaded and live for your buyers!`;
+        setUploadSuccessMessage(msg);
+        setTimeout(() => setUploadSuccessMessage(null), 6000);
+      }
+
+      if (result.failed.length > 0) {
+        setUploadError(`Failed to upload ${result.failed.length} file(s): ${result.failed.map(f => f.name).join(', ')}`);
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       setUploadError(message);
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    handleFilesBatch(files);
+  };
+
+  const handleDeleteProduct = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to remove "${name}" from your product files?`)) {
+      return;
+    }
+    try {
+      setDeletingId(id);
+      const remaining = await leadService.deleteProduct(id);
+      setProductsList(remaining);
+      if (remaining.length > 0) {
+        setProductInfo(remaining[0]);
+      }
+    } catch {
+      setUploadError(`Could not delete "${name}"`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleTestDownloadAll = async () => {
+    try {
+      setIsDownloadingAll(true);
+      await leadService.downloadAllFiles(productsList);
+    } finally {
+      setIsDownloadingAll(false);
     }
   };
 
@@ -260,7 +323,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               }`}
             >
               <FileUp className="w-3.5 h-3.5" />
-              <span>Upload Product (PDF)</span>
+              <span>Product Files ({productsList.length})</span>
             </button>
 
             <button
@@ -300,62 +363,50 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
           )}
         </div>
 
-        {/* TAB: UPLOAD PRODUCT (PDF) */}
+        {/* TAB: UPLOAD PRODUCT (MULTI-FILE VAULT) */}
         {activeTab === 'product' && (
-          <div className="p-6 space-y-6 overflow-y-auto flex-1 max-w-2xl mx-auto w-full">
-            <div className="space-y-1">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <FileUp className="w-4 h-4 text-emerald-400" />
-                <span>Upload Your Digital Product (PDF)</span>
-              </h3>
-              <p className="text-xs text-neutral-400">
-                Upload your digital product playbook or swipe files here. Whenever a buyer pays or submits their bank transfer, this exact PDF will be delivered immediately to them for download.
-              </p>
-            </div>
-
-            {/* Current Active Product Card */}
-            <div className="p-4 rounded-2xl bg-neutral-950 border border-emerald-500/40 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  Current Active Product File:
-                </span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono">
-                  Live in Checkout
-                </span>
+          <div className="p-6 space-y-6 overflow-y-auto flex-1 max-w-3xl mx-auto w-full">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <FileUp className="w-4 h-4 text-emerald-400" />
+                  <span>Your Digital Product Files & Bundle</span>
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  Upload all your PDF guides, workbooks, swipe files, and bonuses. Customers get instant download access to all uploaded files upon purchase.
+                </p>
               </div>
 
-              <div className="flex items-center justify-between bg-neutral-900 p-3 rounded-xl border border-neutral-800">
-                <div className="flex items-center gap-3 truncate mr-2">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="truncate">
-                    <div className="text-xs font-bold text-white truncate" title={productInfo.originalName}>
-                      {productInfo.originalName}
-                    </div>
-                    <div className="text-[10px] text-neutral-400">
-                      Size: {productInfo.fileSize} • Uploaded: {new Date(productInfo.uploadedAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                </div>
-
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => leadService.triggerProductDownload(productInfo.downloadUrl, productInfo.originalName)}
-                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer border border-emerald-500/30"
-                  title="Test download what your buyers receive"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-500/20"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Test Download</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Upload Files</span>
                 </button>
+
+                {productsList.length > 1 && (
+                  <button
+                    type="button"
+                    disabled={isDownloadingAll}
+                    onClick={handleTestDownloadAll}
+                    className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-700"
+                    title="Test download every file in the bundle"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{isDownloadingAll ? 'Downloading...' : 'Test All'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Feedback Notifications */}
-            {uploadSuccess && (
+            {uploadSuccessMessage && (
               <div className="p-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
                 <CheckCircle className="w-4 h-4 shrink-0" />
-                <span>Product file "{productInfo.originalName}" ({productInfo.fileSize}) successfully uploaded and set live for all customers!</span>
+                <span>{uploadSuccessMessage}</span>
               </div>
             )}
 
@@ -366,7 +417,104 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               </div>
             )}
 
-            {/* Upload Dropzone / Picker */}
+            {/* Upload Progress Bar if batch uploading */}
+            {uploadProgress && (
+              <div className="p-4 rounded-2xl bg-neutral-950 border border-emerald-500/50 space-y-2 animate-pulse">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-white flex items-center gap-2">
+                    <span className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    Uploading file {uploadProgress.current + 1} of {uploadProgress.total}...
+                  </span>
+                  <span className="text-neutral-400 truncate max-w-xs">{uploadProgress.currentFileName}</span>
+                </div>
+                <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-emerald-400 h-1.5 transition-all duration-300"
+                    style={{ width: `${Math.round(((uploadProgress.current + 1) / uploadProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* List of Current Product Files */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Files in Product Bundle ({productsList.length})</span>
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono">
+                  Live for Buyers
+                </span>
+              </div>
+
+              {productsList.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-2">
+                  <p className="text-xs text-neutral-400">No product files uploaded yet.</p>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-xs text-emerald-400 hover:underline font-bold"
+                  >
+                    Click here to upload your first file
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {productsList.map((file, idx) => {
+                    const ext = (file.originalName.split('.').pop() || 'PDF').toUpperCase();
+                    return (
+                      <div 
+                        key={file.id || `file-${idx}`}
+                        className="p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-all flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3 truncate min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-800 text-emerald-400 flex flex-col items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4" />
+                            <span className="text-[9px] font-black font-mono mt-0.5">{ext.slice(0, 4)}</span>
+                          </div>
+                          <div className="truncate">
+                            <div className="text-xs font-bold text-white truncate" title={file.originalName}>
+                              {file.originalName}
+                            </div>
+                            <div className="text-[10px] text-neutral-400 flex items-center gap-2 mt-0.5">
+                              <span>Size: {file.fileSize}</span>
+                              <span>•</span>
+                              <span>Uploaded: {new Date(file.uploadedAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => leadService.triggerProductDownload(file.downloadUrl, file.originalName, file.id)}
+                            className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
+                            title="Test download what your buyers receive"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Test</span>
+                          </button>
+
+                          {productsList.length > 1 && file.id && (
+                            <button
+                              type="button"
+                              disabled={deletingId === file.id}
+                              onClick={() => handleDeleteProduct(file.id!, file.originalName)}
+                              className="p-1.5 rounded-lg bg-neutral-900 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer border border-neutral-800 hover:border-rose-900"
+                              title="Remove file from bundle"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Upload Dropzone / Multi-File Picker */}
             <div 
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => {
@@ -376,11 +524,8 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               onDrop={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                  const fakeEvent = {
-                    target: { files: e.dataTransfer.files }
-                  } as unknown as React.ChangeEvent<HTMLInputElement>;
-                  handleFileSelect(fakeEvent);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  handleFilesBatch(Array.from(e.dataTransfer.files));
                 }
               }}
               className="p-8 border-2 border-dashed border-neutral-700 hover:border-emerald-400 bg-neutral-950/70 hover:bg-neutral-950 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all group space-y-3"
@@ -388,7 +533,8 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.zip,.epub,.docx,.txt,application/pdf,application/zip,application/*"
+                multiple
+                accept=".pdf,.zip,.epub,.docx,.txt,.xlsx,.csv,application/pdf,application/zip,application/*"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -403,10 +549,10 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
 
               <div className="space-y-1">
                 <div className="text-sm font-bold text-white group-hover:text-emerald-400 transition-colors">
-                  {isUploading ? 'Uploading & Securing Product File...' : 'Click to select or drop your Product file'}
+                  {isUploading ? 'Uploading & Securing Files...' : 'Select or drop all your files here'}
                 </div>
                 <p className="text-xs text-neutral-400 max-w-sm">
-                  Supported formats: <strong>PDF, ZIP, DOCX, EPUB</strong> (Up to 100 MB). Automatically updates buyer downloads.
+                  Select <strong>multiple files at once</strong> (PDFs, ZIPs, DOCX, workbooks). Up to 100 MB per file.
                 </p>
               </div>
 
@@ -415,20 +561,20 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                 disabled={isUploading}
                 className="px-4 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-colors"
               >
-                {isUploading ? 'Processing File...' : 'Browse Computer for Product File'}
+                {isUploading ? 'Uploading Files...' : 'Browse & Select Multiple Files'}
               </button>
             </div>
 
             <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 text-xs text-neutral-400 space-y-1.5">
-              <span className="font-bold text-white block">💡 How It Works:</span>
+              <span className="font-bold text-white block">💡 Multi-File Bundle Features:</span>
               <p>
-                1. Select your final PDF file (e.g. your guide, proposal swipe files, or client acquisition playbook).
+                • <strong>Upload multiple files at once:</strong> Select all your PDFs, swipe files, or bonus templates together in the file browser.
               </p>
               <p>
-                2. As soon as you upload it, our system saves it directly to your application's secure download vault.
+                • <strong>Instant Buyer Access:</strong> Customers who purchase or verify payment will see all your files listed cleanly with individual download buttons as well as a "Download All" option.
               </p>
               <p>
-                3. When any customer completes the payment process, the "Download PDF" button will immediately deliver this file to them.
+                • <strong>Bulletproof Storage:</strong> Files are stored both in the system downloads vault and in your browser's IndexedDB vault for reliable delivery.
               </p>
             </div>
           </div>

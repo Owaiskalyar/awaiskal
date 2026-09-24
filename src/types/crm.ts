@@ -28,9 +28,12 @@ export interface BankAccountDetails {
 }
 
 export interface ProductFileInfo {
+  id?: string;
   filename: string;
   originalName: string;
   fileSize: string;
+  fileSizeBytes?: number;
+  fileType?: string;
   uploadedAt: string;
   downloadUrl: string;
 }

@@ -55,6 +55,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     uploadedAt: new Date().toISOString(),
     downloadUrl: '/api/download-product'
   });
+  const [productsList, setProductsList] = useState<ProductFileInfo[]>([]);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   useEffect(() => {
     if (selectedTierId) {
@@ -66,6 +68,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     if (isOpen) {
       leadService.getBankDetails().then(setBankDetails);
       leadService.getProductFile().then(setProductInfo);
+      leadService.getAllProducts().then(list => {
+        setProductsList(list);
+        if (list.length > 0) setProductInfo(list[0]);
+      });
       const ref = `UPW-${Math.floor(10000 + Math.random() * 90000)}`;
       setOrderReference(ref);
       setCurrentLeadId(`lead-${Date.now()}`);
@@ -263,38 +269,78 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            {/* Downloads Vault - Directly links to uploaded PDF */}
+            {/* Downloads Vault - Directly links to uploaded PDF and multi-file bundle */}
             <div className="space-y-3 max-w-md mx-auto text-left">
               <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center justify-between">
                 <span>Your Digital Product Package:</span>
                 <span className="text-[10px] text-emerald-400 font-medium">Ready for Download</span>
               </div>
 
-              {/* Real PDF Product Download */}
-              <div className="p-3.5 rounded-xl bg-neutral-950 border border-emerald-500/40 flex items-center justify-between">
-                <div className="flex items-center gap-3 truncate mr-2">
-                  <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="truncate">
-                    <div className="text-xs font-bold text-white truncate" title={productInfo.originalName}>
-                      {productInfo.originalName || "Upwork-Client-Acquisition-Master-System.pdf"}
+              {/* If multiple product files exist, show bundle download button */}
+              {productsList.length > 1 && (
+                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>📦 Complete Product Bundle</span>
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono px-1.5 py-0.5 rounded">
+                        {productsList.length} Files
+                      </span>
                     </div>
-                    <div className="text-[10px] text-neutral-400">
-                      PDF Document • {productInfo.fileSize || "14.2 MB"} • Full Playbook
+                    <div className="text-[10px] text-neutral-400 mt-0.5">
+                      Download all playbooks, guides, and swipe files
                     </div>
                   </div>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => leadService.triggerProductDownload(productInfo.downloadUrl, productInfo.originalName)}
-                  className="px-3.5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-extrabold transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Product</span>
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    disabled={isDownloadingAll}
+                    onClick={async () => {
+                      try {
+                        setIsDownloadingAll(true);
+                        await leadService.downloadAllFiles(productsList);
+                      } finally {
+                        setIsDownloadingAll(false);
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-extrabold transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{isDownloadingAll ? 'Downloading...' : 'Download All Files'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Render each product file in the vault */}
+              {(productsList.length > 0 ? productsList : [productInfo]).map((prod, idx) => {
+                const ext = (prod.originalName.split('.').pop() || 'PDF').toUpperCase();
+                return (
+                  <div key={prod.id || `prod-${idx}`} className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-emerald-500/40 transition-colors flex items-center justify-between">
+                    <div className="flex items-center gap-3 truncate mr-2">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex flex-col items-center justify-center font-bold text-xs shrink-0">
+                        <FileText className="w-4 h-4" />
+                        <span className="text-[8px] font-mono mt-0.5">{ext.slice(0, 4)}</span>
+                      </div>
+                      <div className="truncate">
+                        <div className="text-xs font-bold text-white truncate" title={prod.originalName}>
+                          {prod.originalName || "Upwork-Client-Acquisition-Master-System.pdf"}
+                        </div>
+                        <div className="text-[10px] text-neutral-400">
+                          {ext} • {prod.fileSize || "14.2 MB"} • Included
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => leadService.triggerProductDownload(prod.downloadUrl, prod.originalName, prod.id)}
+                      className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 border border-emerald-500/30 cursor-pointer"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Download</span>
+                    </button>
+                  </div>
+                );
+              })}
 
               {/* Notion Workspace */}
               <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">

@@ -80,13 +80,14 @@ const INITIAL_DEMO_LEADS: Lead[] = [
 // IndexedDB Vault for zero-fail local file storage
 const IDB_NAME = 'upwork_crm_vault_db';
 const IDB_STORE = 'product_files';
+const PRODUCTS_LIST_STORAGE_KEY = 'upwork_products_list_v1';
 
 function openIndexedDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       return reject(new Error('IndexedDB not supported'));
     }
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(IDB_STORE)) {
@@ -98,11 +99,16 @@ function openIndexedDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveProductToVault(file: File | Blob, filename: string): Promise<void> {
+export async function saveProductToVault(file: File | Blob, filename: string, fileId?: string): Promise<void> {
   try {
     const db = await openIndexedDb();
     const tx = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
+    const key = fileId ? `file_${fileId}` : 'active_product_file';
+    const nameKey = fileId ? `name_${fileId}` : 'active_product_filename';
+    store.put(file, key);
+    store.put(filename, nameKey);
+    // Also save as latest active product
     store.put(file, 'active_product_file');
     store.put(filename, 'active_product_filename');
     store.put(new Date().toISOString(), 'active_product_timestamp');
@@ -115,23 +121,38 @@ export async function saveProductToVault(file: File | Blob, filename: string): P
   }
 }
 
-export async function getProductFromVault(): Promise<{ file: Blob; filename: string } | null> {
+export async function getProductFromVault(fileId?: string): Promise<{ file: Blob; filename: string } | null> {
   try {
     const db = await openIndexedDb();
     const tx = db.transaction(IDB_STORE, 'readonly');
     const store = tx.objectStore(IDB_STORE);
-    const fileReq = store.get('active_product_file');
-    const nameReq = store.get('active_product_filename');
+    const fileKey = fileId ? `file_${fileId}` : 'active_product_file';
+    const nameKey = fileId ? `name_${fileId}` : 'active_product_filename';
+    const fileReq = store.get(fileKey);
+    const nameReq = store.get(nameKey);
 
     return new Promise((resolve) => {
       tx.oncomplete = () => {
         if (fileReq.result) {
           resolve({
             file: fileReq.result as Blob,
-            filename: (nameReq.result as string) || 'Upwork-Client-Acquisition-Master-System.pdf'
+            filename: (nameReq.result as string) || 'Product-File.pdf'
           });
         } else {
-          resolve(null);
+          // If specific fileId not found, fallback to active_product_file
+          const fallbackReq = store.get('active_product_file');
+          const fallbackNameReq = store.get('active_product_filename');
+          fallbackReq.onsuccess = () => {
+            if (fallbackReq.result) {
+              resolve({
+                file: fallbackReq.result as Blob,
+                filename: (fallbackNameReq.result as string) || 'Upwork-Client-Acquisition-Master-System.pdf'
+              });
+            } else {
+              resolve(null);
+            }
+          };
+          fallbackReq.onerror = () => resolve(null);
         }
       };
       tx.onerror = () => resolve(null);
@@ -288,10 +309,42 @@ export const leadService = {
     return DEFAULT_PRODUCT_FILE;
   },
 
-  // Zero-Fail Download Trigger: checks IndexedDB first, falls back to server URL
-  triggerProductDownload: async (fallbackUrl = '/api/download-product', filenameHint = 'Upwork-Client-Acquisition-Master-System.pdf'): Promise<void> => {
+  getAllProducts: async (): Promise<ProductFileInfo[]> => {
     try {
-      const vaulted = await getProductFromVault();
+      const res = await fetch('/api/products');
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list) && list.length > 0) {
+          localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(list));
+          return list;
+        }
+      }
+    } catch {
+      // fallback to localStorage
+    }
+
+    const local = localStorage.getItem(PRODUCTS_LIST_STORAGE_KEY);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        // pass
+      }
+    }
+
+    const single = await leadService.getProductFile();
+    return [single];
+  },
+
+  // Zero-Fail Download Trigger: checks IndexedDB first, falls back to server URL
+  triggerProductDownload: async (
+    fallbackUrl = '/api/download-product',
+    filenameHint = 'Upwork-Client-Acquisition-Master-System.pdf',
+    fileId?: string
+  ): Promise<void> => {
+    try {
+      const vaulted = await getProductFromVault(fileId);
       if (vaulted && vaulted.file && vaulted.file.size > 0) {
         const blobUrl = URL.createObjectURL(vaulted.file);
         const a = document.createElement('a');
@@ -310,8 +363,12 @@ export const leadService = {
     }
 
     // Direct network download
+    const url = fileId && !fallbackUrl.includes('?id=') 
+      ? `${fallbackUrl}?id=${encodeURIComponent(fileId)}` 
+      : fallbackUrl;
+
     const a = document.createElement('a');
-    a.href = fallbackUrl;
+    a.href = url;
     a.download = filenameHint;
     document.body.appendChild(a);
     a.click();
@@ -320,25 +377,39 @@ export const leadService = {
     }, 2000);
   },
 
+  // Download all files sequentially so browser doesn't block multi-file downloads
+  downloadAllFiles: async (products: ProductFileInfo[]): Promise<void> => {
+    if (!products || products.length === 0) return;
+    for (let i = 0; i < products.length; i++) {
+      const prod = products[i];
+      await leadService.triggerProductDownload(prod.downloadUrl, prod.originalName, prod.id);
+      if (i < products.length - 1) {
+        await new Promise(r => setTimeout(r, 650));
+      }
+    }
+  },
+
   // Bulletproof Upload with Dual Pipeline: IndexedDB + Raw Streaming + Base64 fallback
   uploadProductFile: async (file: File): Promise<ProductFileInfo> => {
+    const fileId = `file_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
     const fileSizeFormatted = file.size < 1024 * 1024 
       ? `${(file.size / 1024).toFixed(1)} KB` 
       : `${sizeInMB} MB`;
 
     // 1. Immediately guarantee local storage in IndexedDB vault
-    await saveProductToVault(file, file.name);
+    await saveProductToVault(file, file.name, fileId);
 
     const fallbackMeta: ProductFileInfo = {
-      filename: 'active-product.pdf',
+      id: fileId,
+      filename: `product-${fileId}.pdf`,
       originalName: file.name,
       fileSize: fileSizeFormatted,
+      fileSizeBytes: file.size,
+      fileType: file.type || 'application/pdf',
       uploadedAt: new Date().toISOString(),
-      downloadUrl: '/api/download-product'
+      downloadUrl: `/api/download-product?id=${fileId}`
     };
-
-    localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(fallbackMeta));
 
     // 2. Primary Upload: Raw Binary Stream (Zero base64 overhead, streams directly to server)
     try {
@@ -347,7 +418,9 @@ export const leadService = {
         headers: {
           'Content-Type': 'application/octet-stream',
           'x-filename': encodeURIComponent(file.name),
-          'x-filesize': encodeURIComponent(fileSizeFormatted)
+          'x-filesize': encodeURIComponent(fileSizeFormatted),
+          'x-file-id': encodeURIComponent(fileId),
+          'x-filetype': encodeURIComponent(file.type || 'application/octet-stream')
         },
         body: file
       });
@@ -356,6 +429,9 @@ export const leadService = {
         const data = await rawRes.json();
         if (data.product) {
           localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(data.product));
+          if (Array.isArray(data.allProducts)) {
+            localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(data.allProducts));
+          }
           return data.product;
         }
       }
@@ -377,9 +453,11 @@ export const leadService = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            id: fileId,
             filename: file.name,
             originalName: file.name,
             fileSize: fileSizeFormatted,
+            fileType: file.type,
             base64Data
           })
         });
@@ -388,6 +466,9 @@ export const leadService = {
           const data = await jsonRes.json();
           if (data.product) {
             localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(data.product));
+            if (Array.isArray(data.allProducts)) {
+              localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(data.allProducts));
+            }
             return data.product;
           }
         }
@@ -396,7 +477,65 @@ export const leadService = {
       }
     }
 
-    // 4. If network was interrupted, the IndexedDB vault already holds the file!
+    // 4. Update local storage list with fallback item
+    const currentList = await leadService.getAllProducts();
+    const updated = [fallbackMeta, ...currentList.filter(p => p.originalName !== file.name)];
+    localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(fallbackMeta));
+
     return fallbackMeta;
+  },
+
+  // Upload multiple files in parallel/sequence with detailed progress
+  uploadMultipleFiles: async (
+    files: File[],
+    onProgress?: (completed: number, total: number, currentName: string) => void
+  ): Promise<{ successful: ProductFileInfo[]; failed: { name: string; error: string }[] }> => {
+    const successful: ProductFileInfo[] = [];
+    const failed: { name: string; error: string }[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (onProgress) {
+        onProgress(i, files.length, file.name);
+      }
+
+      try {
+        const uploaded = await leadService.uploadProductFile(file);
+        successful.push(uploaded);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        failed.push({ name: file.name, error: msg });
+      }
+    }
+
+    if (onProgress) {
+      onProgress(files.length, files.length, 'Complete');
+    }
+
+    return { successful, failed };
+  },
+
+  // Delete product file
+  deleteProduct: async (id: string): Promise<ProductFileInfo[]> => {
+    try {
+      const res = await fetch(`/api/products/${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.allProducts)) {
+          localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(data.allProducts));
+          return data.allProducts;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const current = await leadService.getAllProducts();
+    const remaining = current.filter(p => p.id !== id);
+    localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(remaining));
+    return remaining;
   }
 };
