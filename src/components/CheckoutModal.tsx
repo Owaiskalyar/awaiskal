@@ -286,14 +286,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   </div>
                 </div>
 
-                <a
-                  href="/api/download-product"
-                  download={productInfo.originalName || "Upwork-Client-Acquisition-System.pdf"}
-                  className="px-3.5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-extrabold transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20"
+                <button
+                  type="button"
+                  onClick={() => leadService.triggerProductDownload(productInfo.downloadUrl, productInfo.originalName)}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-neutral-950 text-xs font-extrabold transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20 cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
-                </a>
+                  <span>Download Product</span>
+                </button>
               </div>
 
               {/* Notion Workspace */}

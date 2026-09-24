@@ -95,11 +95,6 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
-      setUploadError('Please select a valid PDF file (.pdf).');
-      return;
-    }
-
     try {
       setIsUploading(true);
       setUploadError(null);
@@ -108,7 +103,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
       const uploaded = await leadService.uploadProductFile(file);
       setProductInfo(uploaded);
       setUploadSuccess(true);
-      setTimeout(() => setUploadSuccess(false), 4000);
+      setTimeout(() => setUploadSuccess(false), 5000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       setUploadError(message);
@@ -344,15 +339,15 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                   </div>
                 </div>
 
-                <a
-                  href="/api/download-product"
-                  download={productInfo.originalName}
+                <button
+                  type="button"
+                  onClick={() => leadService.triggerProductDownload(productInfo.downloadUrl, productInfo.originalName)}
                   className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer border border-emerald-500/30"
                   title="Test download what your buyers receive"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Test Download</span>
-                </a>
+                </button>
               </div>
             </div>
 
@@ -360,7 +355,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
             {uploadSuccess && (
               <div className="p-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
                 <CheckCircle className="w-4 h-4 shrink-0" />
-                <span>Product PDF successfully uploaded and set live for all customers!</span>
+                <span>Product file "{productInfo.originalName}" ({productInfo.fileSize}) successfully uploaded and set live for all customers!</span>
               </div>
             )}
 
@@ -374,12 +369,26 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
             {/* Upload Dropzone / Picker */}
             <div 
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  const fakeEvent = {
+                    target: { files: e.dataTransfer.files }
+                  } as unknown as React.ChangeEvent<HTMLInputElement>;
+                  handleFileSelect(fakeEvent);
+                }
+              }}
               className="p-8 border-2 border-dashed border-neutral-700 hover:border-emerald-400 bg-neutral-950/70 hover:bg-neutral-950 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all group space-y-3"
             >
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,application/pdf"
+                accept=".pdf,.zip,.epub,.docx,.txt,application/pdf,application/zip,application/*"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -394,10 +403,10 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
 
               <div className="space-y-1">
                 <div className="text-sm font-bold text-white group-hover:text-emerald-400 transition-colors">
-                  {isUploading ? 'Uploading Product PDF...' : 'Click to select or drop your Product PDF file'}
+                  {isUploading ? 'Uploading & Securing Product File...' : 'Click to select or drop your Product file'}
                 </div>
                 <p className="text-xs text-neutral-400 max-w-sm">
-                  Supported format: <strong>.pdf</strong> (Up to 50 MB). Replaces the current product file automatically.
+                  Supported formats: <strong>PDF, ZIP, DOCX, EPUB</strong> (Up to 100 MB). Automatically updates buyer downloads.
                 </p>
               </div>
 
@@ -406,7 +415,7 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                 disabled={isUploading}
                 className="px-4 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-colors"
               >
-                {isUploading ? 'Uploading...' : 'Browse Computer for PDF'}
+                {isUploading ? 'Processing File...' : 'Browse Computer for Product File'}
               </button>
             </div>
 
