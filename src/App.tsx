@@ -9,6 +9,7 @@ import { Hero } from './components/Hero';
 import { PainVsDream } from './components/PainVsDream';
 import { ProposalComparison } from './components/ProposalComparison';
 import { CurriculumOverview } from './components/CurriculumOverview';
+import { SuccessMetrics } from './components/SuccessMetrics';
 import { RoiCalculator } from './components/RoiCalculator';
 import { TestimonialsSection } from './components/TestimonialsSection';
 import { PricingSection } from './components/PricingSection';
@@ -45,6 +46,7 @@ export default function App() {
         <PainVsDream onOpenCheckout={handleOpenCheckout} />
         <ProposalComparison />
         <CurriculumOverview onOpenCheckout={handleOpenCheckout} />
+        <SuccessMetrics onOpenCheckout={handleOpenCheckout} />
         <RoiCalculator onOpenCheckout={handleOpenCheckout} />
         <TestimonialsSection />
         <PricingSection onOpenCheckout={handleOpenCheckout} />

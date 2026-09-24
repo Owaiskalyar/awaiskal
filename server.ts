@@ -209,7 +209,8 @@ function saveProductBuffer(
   originalName: string,
   fileSize: string,
   explicitId?: string,
-  explicitType?: string
+  explicitType?: string,
+  replaceTargetId?: string
 ): ProductMeta {
   const id = explicitId || `prod_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const ext = path.extname(originalName) || ".pdf";
@@ -253,13 +254,43 @@ function saveProductBuffer(
     downloadUrl: `/api/download-product?id=${id}`
   };
 
-  // Update products list
-  const currentProducts = getAllStoredProducts();
-  const existingIndex = currentProducts.findIndex(p => p.id === id || p.originalName === originalName);
-  if (existingIndex >= 0) {
-    currentProducts[existingIndex] = productMeta;
+  // Update products list (handling replacement if replaceTargetId is provided)
+  let currentProducts = getAllStoredProducts();
+
+  if (replaceTargetId) {
+    const targetIdx = currentProducts.findIndex(p => p.id === replaceTargetId);
+    if (targetIdx >= 0) {
+      const oldProd = currentProducts[targetIdx];
+      // Clean up old file if distinct from newly written file
+      if (oldProd && oldProd.filename && oldProd.filename !== diskFilename) {
+        const oldPaths = [
+          path.join(PUBLIC_DOWNLOADS_DIR, oldProd.filename),
+          path.resolve(process.cwd(), "dist", "downloads", oldProd.filename),
+          path.join(TMP_PRODUCT_DIR, oldProd.filename),
+          path.join(os.tmpdir(), oldProd.filename)
+        ];
+        for (const op of oldPaths) {
+          try {
+            if (fs.existsSync(op)) fs.unlinkSync(op);
+          } catch {}
+        }
+      }
+      currentProducts[targetIdx] = productMeta;
+    } else {
+      // If replacing target wasn't found by id, replace the first item or unshift
+      if (currentProducts.length > 0) {
+        currentProducts[0] = productMeta;
+      } else {
+        currentProducts = [productMeta];
+      }
+    }
   } else {
-    currentProducts.push(productMeta);
+    const existingIndex = currentProducts.findIndex(p => p.id === id || p.originalName === originalName);
+    if (existingIndex >= 0) {
+      currentProducts[existingIndex] = productMeta;
+    } else {
+      currentProducts.push(productMeta);
+    }
   }
 
   const listPaths = [
@@ -514,7 +545,7 @@ async function startServer() {
     }
   });
 
-  // 1. RAW Direct Binary Stream Upload API (Streams directly to disk, supports multiple files)
+  // 1. RAW Direct Binary Stream Upload API (Streams directly to disk, supports multiple files & replacement)
   app.post("/api/upload-product-raw", (req, res) => {
     try {
       const originalName = req.headers["x-filename"]
@@ -533,6 +564,10 @@ async function startServer() {
         ? decodeURIComponent(req.headers["x-filetype"] as string)
         : undefined;
 
+      const replaceTargetId = req.headers["x-replace-target-id"]
+        ? decodeURIComponent(req.headers["x-replace-target-id"] as string)
+        : undefined;
+
       const chunks: Buffer[] = [];
 
       req.on("data", (chunk: Buffer) => {
@@ -543,7 +578,7 @@ async function startServer() {
         try {
           const buffer = Buffer.concat(chunks);
           const computedSize = rawFileSize || `${(buffer.length / (1024 * 1024)).toFixed(2)} MB`;
-          const productMeta = saveProductBuffer(buffer, originalName, computedSize, explicitId, explicitType);
+          const productMeta = saveProductBuffer(buffer, originalName, computedSize, explicitId, explicitType, replaceTargetId);
           const allProducts = getAllStoredProducts();
           res.json({ success: true, product: productMeta, allProducts });
         } catch (err: unknown) {
@@ -562,10 +597,10 @@ async function startServer() {
     }
   });
 
-  // 2. Base64 JSON Upload API (Fallback)
+  // 2. Base64 JSON Upload API (Fallback, supports replaceTargetId)
   app.post("/api/upload-product", (req, res) => {
     try {
-      const { filename, originalName, fileSize, base64Data, id, fileType } = req.body;
+      const { filename, originalName, fileSize, base64Data, id, fileType, replaceTargetId } = req.body;
       if (!base64Data) {
         return res.status(400).json({ error: "Missing file data" });
       }
@@ -576,7 +611,7 @@ async function startServer() {
 
       const name = originalName || filename || "Product-File.pdf";
       const size = fileSize || `${(buffer.length / (1024 * 1024)).toFixed(2)} MB`;
-      const productMeta = saveProductBuffer(buffer, name, size, id, fileType);
+      const productMeta = saveProductBuffer(buffer, name, size, id, fileType, replaceTargetId);
       const allProducts = getAllStoredProducts();
 
       res.json({ success: true, product: productMeta, allProducts });
@@ -641,7 +676,9 @@ async function startServer() {
   app.use("/downloads", express.static(TMP_PRODUCT_DIR));
 
   const distPath = path.resolve(process.cwd(), "dist");
-  const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(path.join(distPath, "index.html"));
+  const distIndex = path.join(distPath, "index.html");
+  const hasBuiltDist = fs.existsSync(distIndex);
+  const isProduction = process.env.NODE_ENV === "production" && hasBuiltDist;
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import("vite");
@@ -653,7 +690,20 @@ async function startServer() {
   } else {
     app.use(express.static(distPath));
     app.get("*", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      if (fs.existsSync(distIndex)) {
+        res.sendFile(distIndex, (err) => {
+          if (err && !res.headersSent) {
+            res.status(500).send("Error serving client application.");
+          }
+        });
+      } else {
+        const rootIndex = path.resolve(process.cwd(), "index.html");
+        if (fs.existsSync(rootIndex)) {
+          res.sendFile(rootIndex);
+        } else {
+          res.status(200).send("<!DOCTYPE html><html><body>Initializing application... please refresh.</body></html>");
+        }
+      }
     });
   }
 

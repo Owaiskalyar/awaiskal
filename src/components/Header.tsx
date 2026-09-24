@@ -102,6 +102,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCheckout, onOpenCrm }) => 
           <button onClick={() => scrollTo('curriculum')} className="hover:text-white transition-colors cursor-pointer">
             What's Inside
           </button>
+          <button onClick={() => scrollTo('metrics')} className="hover:text-white transition-colors cursor-pointer flex items-center gap-1">
+            <span>Success Metrics</span>
+            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-1 py-0.2 rounded font-semibold">D3</span>
+          </button>
           <button onClick={() => scrollTo('calculator')} className="hover:text-white transition-colors cursor-pointer">
             ROI Calculator
           </button>
@@ -155,6 +159,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCheckout, onOpenCrm }) => 
             </button>
             <button onClick={() => scrollTo('curriculum')} className="text-left py-2 px-2 hover:bg-neutral-900 rounded">
               Modules & Bonuses
+            </button>
+            <button onClick={() => scrollTo('metrics')} className="text-left py-2 px-2 hover:bg-neutral-900 rounded flex items-center justify-between">
+              <span>Success Metrics (D3 ROI)</span>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-mono">Chart</span>
             </button>
             <button onClick={() => scrollTo('calculator')} className="text-left py-2 px-2 hover:bg-neutral-900 rounded">
               Connects & ROI Calculator

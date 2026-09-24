@@ -389,8 +389,8 @@ export const leadService = {
     }
   },
 
-  // Bulletproof Upload with Dual Pipeline: IndexedDB + Raw Streaming + Base64 fallback
-  uploadProductFile: async (file: File): Promise<ProductFileInfo> => {
+  // Bulletproof Upload with Dual Pipeline: IndexedDB + Raw Streaming + Base64 fallback (supports atomic replacement)
+  uploadProductFile: async (file: File, replaceTargetId?: string): Promise<ProductFileInfo> => {
     const fileId = `file_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
     const fileSizeFormatted = file.size < 1024 * 1024 
@@ -399,6 +399,17 @@ export const leadService = {
 
     // 1. Immediately guarantee local storage in IndexedDB vault
     await saveProductToVault(file, file.name, fileId);
+
+    // If replacing an existing product, clean up its old key in IndexedDB
+    if (replaceTargetId) {
+      try {
+        const db = await openIndexedDb();
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        store.delete(`file_${replaceTargetId}`);
+        store.delete(`name_${replaceTargetId}`);
+      } catch {}
+    }
 
     const fallbackMeta: ProductFileInfo = {
       id: fileId,
@@ -413,15 +424,20 @@ export const leadService = {
 
     // 2. Primary Upload: Raw Binary Stream (Zero base64 overhead, streams directly to server)
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/octet-stream',
+        'x-filename': encodeURIComponent(file.name),
+        'x-filesize': encodeURIComponent(fileSizeFormatted),
+        'x-file-id': encodeURIComponent(fileId),
+        'x-filetype': encodeURIComponent(file.type || 'application/octet-stream')
+      };
+      if (replaceTargetId) {
+        headers['x-replace-target-id'] = encodeURIComponent(replaceTargetId);
+      }
+
       const rawRes = await fetch('/api/upload-product-raw', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'x-filename': encodeURIComponent(file.name),
-          'x-filesize': encodeURIComponent(fileSizeFormatted),
-          'x-file-id': encodeURIComponent(fileId),
-          'x-filetype': encodeURIComponent(file.type || 'application/octet-stream')
-        },
+        headers,
         body: file
       });
 
@@ -458,6 +474,7 @@ export const leadService = {
             originalName: file.name,
             fileSize: fileSizeFormatted,
             fileType: file.type,
+            replaceTargetId,
             base64Data
           })
         });
@@ -479,11 +496,30 @@ export const leadService = {
 
     // 4. Update local storage list with fallback item
     const currentList = await leadService.getAllProducts();
-    const updated = [fallbackMeta, ...currentList.filter(p => p.originalName !== file.name)];
+    let updated: ProductFileInfo[];
+    if (replaceTargetId) {
+      const idx = currentList.findIndex(p => p.id === replaceTargetId);
+      if (idx >= 0) {
+        updated = [...currentList];
+        updated[idx] = fallbackMeta;
+      } else {
+        updated = [fallbackMeta, ...currentList];
+      }
+    } else {
+      updated = [fallbackMeta, ...currentList.filter(p => p.originalName !== file.name)];
+    }
+
     localStorage.setItem(PRODUCTS_LIST_STORAGE_KEY, JSON.stringify(updated));
     localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(fallbackMeta));
 
     return fallbackMeta;
+  },
+
+  // Atomic replace a specific product file (like the test product) with a new file
+  replaceProductFile: async (targetId: string, file: File): Promise<{ product: ProductFileInfo; allProducts: ProductFileInfo[] }> => {
+    const product = await leadService.uploadProductFile(file, targetId);
+    const allProducts = await leadService.getAllProducts();
+    return { product, allProducts };
   },
 
   // Upload multiple files in parallel/sequence with detailed progress

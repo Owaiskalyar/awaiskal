@@ -64,6 +64,8 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   const [replacingFileId, setReplacingFileId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
+  const replaceTargetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -176,8 +178,50 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
   };
 
   const handleStartReplace = (fileId: string) => {
+    replaceTargetIdRef.current = fileId;
     setReplacingFileId(fileId);
-    fileInputRef.current?.click();
+    if (replaceFileInputRef.current) {
+      replaceFileInputRef.current.value = '';
+      replaceFileInputRef.current.click();
+    }
+  };
+
+  const handleReplaceFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const targetId = replaceTargetIdRef.current;
+    if (!file || !targetId) {
+      setReplacingFileId(null);
+      replaceTargetIdRef.current = null;
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+      setUploadSuccessMessage(null);
+      setUploadProgress({ current: 0, total: 1, currentFileName: file.name });
+
+      const result = await leadService.replaceProductFile(targetId, file);
+      const refreshed = await leadService.getAllProducts();
+      setProductsList(refreshed);
+      if (refreshed.length > 0) {
+        setProductInfo(refreshed[0]);
+      }
+
+      setUploadSuccessMessage(`Successfully replaced file with "${file.name}" (${result.product.fileSize})! Live and ready to test download.`);
+      setTimeout(() => setUploadSuccessMessage(null), 6000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to replace product file';
+      setUploadError(message);
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(null);
+      replaceTargetIdRef.current = null;
+      setReplacingFileId(null);
+      if (replaceFileInputRef.current) {
+        replaceFileInputRef.current.value = '';
+      }
+    }
   };
 
   const handleDeleteProduct = async (id: string, name: string) => {
@@ -642,21 +686,22 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                                 {/* Replace file with a different file */}
                                 <button
                                   type="button"
+                                  disabled={isUploading || deletingId === file.id}
                                   onClick={() => handleStartReplace(file.id!)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800"
+                                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border border-neutral-800 disabled:opacity-50"
                                   title="Upload a different file to replace this file"
                                 >
-                                  <RefreshCw className="w-3.5 h-3.5 text-neutral-400" />
-                                  <span className="hidden sm:inline">Replace</span>
+                                  <RefreshCw className={`w-3.5 h-3.5 text-neutral-400 ${replacingFileId === file.id ? 'animate-spin text-emerald-400' : ''}`} />
+                                  <span className="hidden sm:inline">{replacingFileId === file.id ? 'Replacing...' : 'Replace'}</span>
                                 </button>
 
                                 {/* Delete file button - ALWAYS accessible, even if only 1 file / test file */}
                                 {file.id && (
                                   <button
                                     type="button"
-                                    disabled={deletingId === file.id}
+                                    disabled={deletingId === file.id || isUploading}
                                     onClick={() => setPendingDeleteId(file.id!)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer border border-neutral-800 hover:border-rose-900/60 flex items-center gap-1.5"
+                                    className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer border border-neutral-800 hover:border-rose-900/60 flex items-center gap-1.5 disabled:opacity-50"
                                     title={isTestProduct ? "Delete test product so you can upload a different file" : "Delete file"}
                                   >
                                     <Trash2 className="w-3.5 h-3.5 text-rose-400" />
@@ -673,6 +718,15 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
                 </div>
               )}
             </div>
+
+            {/* Hidden dedicated file input for atomic replacement */}
+            <input
+              ref={replaceFileInputRef}
+              type="file"
+              accept=".pdf,.zip,.epub,.docx,.txt,.xlsx,.csv,application/pdf,application/zip,application/*"
+              onChange={handleReplaceFileSelected}
+              className="hidden"
+            />
 
             {/* Upload Dropzone / Multi-File Picker */}
             <div 
