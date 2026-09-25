@@ -6,11 +6,14 @@ const BANK_STORAGE_KEY = 'upwork_bank_details_v1';
 const PRODUCT_STORAGE_KEY = 'upwork_product_file_v1';
 
 const DEFAULT_PRODUCT_FILE: ProductFileInfo = {
-  filename: 'active-product.pdf',
-  originalName: 'Upwork-Client-Acquisition-Master-System.pdf',
-  fileSize: '14.2 MB',
+  id: 'prod_quick_start_guide',
+  filename: 'Start-Here-Quick-Start-Guide.pdf',
+  originalName: 'Start-Here-Quick-Start-Guide.pdf',
+  fileSize: '8.0 KB',
+  fileSizeBytes: 8016,
+  fileType: 'application/pdf',
   uploadedAt: new Date().toISOString(),
-  downloadUrl: '/api/download-product'
+  downloadUrl: '/api/download-product?id=prod_quick_start_guide'
 };
 
 const INITIAL_DEMO_LEADS: Lead[] = [

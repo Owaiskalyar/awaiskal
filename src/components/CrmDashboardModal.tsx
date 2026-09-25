@@ -48,11 +48,12 @@ export const CrmDashboardModal: React.FC<CrmDashboardModalProps> = ({ isOpen, on
 
   // Product Upload State
   const [productInfo, setProductInfo] = useState<ProductFileInfo>({
-    filename: 'active-product.pdf',
-    originalName: 'Upwork-Client-Acquisition-Master-System.pdf',
-    fileSize: '14.2 MB',
+    id: 'prod_quick_start_guide',
+    filename: 'Start-Here-Quick-Start-Guide.pdf',
+    originalName: 'Start-Here-Quick-Start-Guide.pdf',
+    fileSize: '8.0 KB',
     uploadedAt: new Date().toISOString(),
-    downloadUrl: '/api/download-product'
+    downloadUrl: '/api/download-product?id=prod_quick_start_guide'
   });
   const [productsList, setProductsList] = useState<ProductFileInfo[]>([]);
   const [isUploading, setIsUploading] = useState(false);

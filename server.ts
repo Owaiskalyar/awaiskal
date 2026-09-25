@@ -113,14 +113,14 @@ function ensureDataFiles() {
 
   try {
     const defaultProduct: ProductMeta = {
-      id: "prod_master_pdf",
-      filename: "active-product.pdf",
-      originalName: "Upwork-Client-Acquisition-Master-System.pdf",
-      fileSize: "14.2 MB",
-      fileSizeBytes: 14889779,
+      id: "prod_quick_start_guide",
+      filename: "Start-Here-Quick-Start-Guide.pdf",
+      originalName: "Start-Here-Quick-Start-Guide.pdf",
+      fileSize: "8.0 KB",
+      fileSizeBytes: 8016,
       fileType: "application/pdf",
       uploadedAt: new Date().toISOString(),
-      downloadUrl: "/api/download-product?id=prod_master_pdf"
+      downloadUrl: "/api/download-product?id=prod_quick_start_guide"
     };
 
     if (!fs.existsSync(PRODUCT_FILE)) {
@@ -192,14 +192,14 @@ function getAllStoredProducts(): ProductMeta[] {
 
   return [
     {
-      id: "prod_master_pdf",
-      filename: "active-product.pdf",
-      originalName: "Upwork-Client-Acquisition-Master-System.pdf",
-      fileSize: "14.2 MB",
-      fileSizeBytes: 14889779,
+      id: "prod_quick_start_guide",
+      filename: "Start-Here-Quick-Start-Guide.pdf",
+      originalName: "Start-Here-Quick-Start-Guide.pdf",
+      fileSize: "8.0 KB",
+      fileSizeBytes: 8016,
       fileType: "application/pdf",
       uploadedAt: new Date().toISOString(),
-      downloadUrl: "/api/download-product?id=prod_master_pdf"
+      downloadUrl: "/api/download-product?id=prod_quick_start_guide"
     }
   ];
 }
@@ -533,14 +533,14 @@ async function startServer() {
   app.post("/api/products/reset-default", (_req, res) => {
     try {
       const defaultProduct: ProductMeta = {
-        id: "prod_master_pdf",
-        filename: "active-product.pdf",
-        originalName: "Upwork-Client-Acquisition-Master-System.pdf",
-        fileSize: "14.2 MB",
-        fileSizeBytes: 14889779,
+        id: "prod_quick_start_guide",
+        filename: "Start-Here-Quick-Start-Guide.pdf",
+        originalName: "Start-Here-Quick-Start-Guide.pdf",
+        fileSize: "8.0 KB",
+        fileSizeBytes: 8016,
         fileType: "application/pdf",
         uploadedAt: new Date().toISOString(),
-        downloadUrl: "/api/download-product?id=prod_master_pdf"
+        downloadUrl: "/api/download-product?id=prod_quick_start_guide"
       };
 
       const listPaths = [

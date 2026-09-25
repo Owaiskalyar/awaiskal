@@ -49,11 +49,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [orderReference, setOrderReference] = useState<string>('');
   const [bankDetails, setBankDetails] = useState<BankAccountDetails>(DEFAULT_BANK_DETAILS);
   const [productInfo, setProductInfo] = useState<ProductFileInfo>({
-    filename: 'active-product.pdf',
-    originalName: 'Upwork-Client-Acquisition-Master-System.pdf',
-    fileSize: '14.2 MB',
+    id: 'prod_quick_start_guide',
+    filename: 'Start-Here-Quick-Start-Guide.pdf',
+    originalName: 'Start-Here-Quick-Start-Guide.pdf',
+    fileSize: '8.0 KB',
     uploadedAt: new Date().toISOString(),
-    downloadUrl: '/api/download-product'
+    downloadUrl: '/api/download-product?id=prod_quick_start_guide'
   });
   const [productsList, setProductsList] = useState<ProductFileInfo[]>([]);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
@@ -323,7 +324,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         </div>
                         <div className="truncate">
                           <div className="text-xs font-bold text-white truncate" title={prod.originalName}>
-                            {prod.originalName || "Upwork-Client-Acquisition-Master-System.pdf"}
+                            {prod.originalName || "Start-Here-Quick-Start-Guide.pdf"}
                           </div>
                           <div className="text-[10px] text-neutral-400">
                             {ext} • {prod.fileSize || "14.2 MB"} • Included

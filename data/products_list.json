@@ -1,12 +1,12 @@
 [
   {
-    "id": "prod_master_pdf",
-    "filename": "active-product.pdf",
-    "originalName": "Upwork-Client-Acquisition-Master-System.pdf",
-    "fileSize": "14.2 MB",
-    "fileSizeBytes": 14889779,
+    "id": "prod_quick_start_guide",
+    "filename": "Start-Here-Quick-Start-Guide.pdf",
+    "originalName": "Start-Here-Quick-Start-Guide.pdf",
+    "fileSize": "0.01 MB",
+    "fileSizeBytes": 8016,
     "fileType": "application/pdf",
-    "uploadedAt": "2026-09-24T21:00:32.635Z",
-    "downloadUrl": "/api/download-product?id=prod_master_pdf"
+    "uploadedAt": "2026-09-25T19:28:28.705Z",
+    "downloadUrl": "/api/download-product?id=prod_quick_start_guide"
   }
 ]
