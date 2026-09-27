@@ -40,7 +40,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
   const [niche, setNiche] = useState<string>('Web & Mobile Dev');
-  const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card' | 'paypal' | 'gpay'>('bank');
+  const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card' | 'gpay'>('bank');
   const [cardNumber, setCardNumber] = useState<string>('4242 •••• •••• 4242');
   const [bankTxRef, setBankTxRef] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -630,7 +630,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 Select Your Payment Method:
               </label>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('bank')}
@@ -642,7 +642,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 >
                   <Building2 className="w-4 h-4" />
                   <span>Bank Wire</span>
-                  <span className="text-[10px] font-normal text-emerald-400 bg-emerald-500/20 px-1 rounded">Direct</span>
+                  <span className="text-[10px] font-normal text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Direct / IBAN / Raast</span>
                 </button>
 
                 <button
@@ -655,21 +655,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   }`}
                 >
                   <CreditCard className="w-4 h-4" />
-                  <span>Credit Card</span>
+                  <span>Credit / Debit Card</span>
                   <span className="text-[10px] font-normal text-neutral-400">Instant</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('paypal')}
-                  className={`py-3 px-3 rounded-xl text-xs font-bold border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                    paymentMethod === 'paypal'
-                      ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 ring-1 ring-emerald-400'
-                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <span className="font-bold">PayPal</span>
-                  <span className="text-[10px] font-normal text-neutral-400">Global</span>
                 </button>
 
                 <button
@@ -681,7 +668,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
                   }`}
                 >
-                  <span className="font-bold">GPay / Apple</span>
+                  <span className="font-bold">GPay / Apple Pay</span>
                   <span className="text-[10px] font-normal text-neutral-400">1-Click</span>
                 </button>
               </div>
@@ -818,10 +805,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             )}
 
-            {/* PAYPAL OR GPAY */}
-            {(paymentMethod === 'paypal' || paymentMethod === 'gpay') && (
+            {/* GPAY / APPLE PAY */}
+            {paymentMethod === 'gpay' && (
               <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 text-xs text-neutral-300 text-center space-y-2">
-                <div>You will be securely redirected to {paymentMethod === 'paypal' ? 'PayPal' : 'Google/Apple Pay'} to complete your ${totalPrice} payment.</div>
+                <div>You will be securely redirected to Google Pay / Apple Pay to complete your ${totalPrice} payment.</div>
               </div>
             )}
 
